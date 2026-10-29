@@ -588,24 +588,44 @@ function ripple(X, Z, A, s, delay) {
 /* ======================================================================
    피아노 음 분석: 반음 단위 피크 + 온셋 + 배음 억제
    ====================================================================== */
-const MIN_MIDI = 36, MAX_MIDI = 88, NS = MAX_MIDI - MIN_MIDI + 1;   // C2 ~ E6
+const MIN_MIDI = 21, MAX_MIDI = 108, NS = MAX_MIDI - MIN_MIDI + 1;  // 피아노 88건반 전체 A0 ~ C8
 let AC = null, analyser = null, stream = null, freqData = null;
 const L = new Float32Array(NS), prevL = new Float32Array(NS), slow = new Float32Array(NS), cool = new Float32Array(NS);
 let peakDb = -60;
 const HARM = [12, 19, 24, 28, 31, 34, 36];
 // [간격(반음), 기음 대비 n배음의 대략적 감쇠(dB)] — n = 2…12
-const HSH = [[12, 6], [19, 9], [24, 11], [28, 13], [31, 14], [34, 16], [36, 17], [38, 18], [40, 19], [41, 20], [42, 20], [43, 21]];
+// 2~24배음까지: 높은 음역(E6 위)을 분석하면 저음의 아주 높은 배음도 들어오므로 표를 넓힘
+const HSH = (() => {
+  const m = new Map();
+  for (let n = 2; n <= 24; n++) { const iv = Math.round(12 * Math.log2(n)), dr = 23 * Math.log10(n) - 0.9; if (!m.has(iv) || m.get(iv) > dr) m.set(iv, dr); }
+  return [...m].sort((a, b) => a[0] - b[0]);
+})();
 const heldT = new Float64Array(NS).fill(-1e9);
 const drizAcc = new Float32Array(NS);
+let lastFloor = -90;
+// 최저음역 옥타브 보정: 피아노 최저음은 기음이 약해 2배음(한 옥타브 위)이 대신 잡힘.
+// 한 옥타브 아래(f/2)에 소리가 있고 그 낮은 음의 3배음(1.5f)도 함께 울리면 한 옥타브 아래 음으로 고침
+function lowFix(c) {
+  const midi = c.s + MIN_MIDI;
+  if (midi > 52 || midi - 12 < MIN_MIDI) return c.s;                 // 보정 결과가 E2 아래일 때만(그 음역은 기음이 약함)
+  if (heldT[c.s - 12] > clk() - 1.0 || pending.some(k => k.s === c.s - 12)) return c.s;   // 아래 음이 따로 잡혔으면 진짜 옥타브
+  const fq = 440 * Math.pow(2, (midi - 69) / 12);
+  const pk = hz => { const i = Math.round(hz / binHzG); let m = -200; for (let k = -1; k <= 1; k++) { const v = freqData[i + k]; if (v > m) m = v; } return m; };
+  const sub = pk(fq / 2), fifth = pk(fq * 1.5);
+  // 아래 음도 지금 막 울리기 시작했어야 함(이미 울리던 저음 위에 친 진짜 옥타브는 그대로 둠)
+  const q = c.s - 12, fresh = q + MIN_MIDI < 28 || L[q] < -100 || L[q] - slow[q] > 2;
+  if (fresh && sub > lastFloor - 12 && sub > c.m - 32 && fifth > c.m - 16) return c.s - 12;
+  return c.s;
+}
 let soundLvl = 0;   // 반음별 마지막 트리거 시각
 // 피아노 스펙트럼은 저음이 훨씬 강함 → 높은 음일수록 바닥 기준을 낮춰 공정하게(왼쪽 쏠림 방지)
-const tilt = s => Math.min(14, Math.max(0, s - 6) * 0.3);
+const tilt = s => Math.min(16, Math.max(0, s + MIN_MIDI - 42) * 0.3);
 
 let iMin = 1, iMax = 100, binHzG = 5.38, PROM = 16;
 const recent = [], pending = [];
 function setupBands() {
   binHzG = AC.sampleRate / analyser.fftSize;
-  iMin = Math.max(8, Math.ceil(60 / binHzG)); iMax = Math.min(analyser.frequencyBinCount - 6, Math.floor(1500 / binHzG));
+  iMin = Math.max(7, Math.ceil(38 / binHzG)); iMax = Math.min(analyser.frequencyBinCount - 8, Math.floor(4400 / binHzG));
   slow.fill(0); prevL.fill(-110); cool.fill(0); peakDb = -60; recent.length = 0; pending.length = 0;
 }
 function analyze(dt) {
@@ -616,6 +636,7 @@ function analyze(dt) {
   for (let i = iMin; i <= iMax; i++) if (fd[i] > fm) fm = fd[i];
   peakDb = Math.max(fm, peakDb - 3 * dt, -75);
   const floorDb = peakDb - 38;
+  lastFloor = floorDb;
   L.fill(-110);
   // 1) 스펙트럼 피크 → 포물선 보간으로 정확한 주파수 → 반음 번호
   for (let i = iMin; i <= iMax; i++) {
@@ -657,7 +678,7 @@ function analyze(dt) {
     if (slow[s] === 0) slow[s] = m;
     cool[s] -= dt;
     const over = m - slow[s], rise = m - prevL[s];
-    if (cool[s] <= 0 && over > T + Math.max(0, s - 60) * 0.06 && rise > 0.4 && m > floorDb - tilt(s)) {
+    if (cool[s] <= 0 && over > T + Math.max(0, s + MIN_MIDI - 96) * 0.06 && rise > 0.4 && m > floorDb - tilt(s)) {
       // 이웃 반음이 이미 울리는 중이면 누설/떨림으로 간주
       let nb = false;
       for (let d = -1; d <= 1; d += 2) { const q = s + d; if (q >= 0 && q < NS && L[q] > m - 3 && slow[q] > L[q] - 6) nb = true; }
@@ -685,11 +706,13 @@ function analyze(dt) {
     if (!harm) for (const [h, drop] of HSH) {
       const q = c.s - h;
       if (q < 0) continue;
-      const mg = 5 + (q < 12 ? 3 : 0);   // C3 아래 저음은 기음이 배음보다 약함 → 여유를 더 줌
-      const dr = q < 12 ? drop * 0.75 : drop;
+      const lowQ = q + MIN_MIDI < 48;     // C3 아래 저음은 기음이 배음보다 약함 → 여유를 더 줌
+      const mg = 5 + (lowQ ? 3 : 0);
+      const dr = lowQ ? drop * 0.75 : drop;
       for (const k of pending) if (k !== c && k.s === q && Math.abs(k.t - c.t) < 0.13 && k.m - dr + mg > c.m) { harm = "H" + q; break; }
       if (!harm) for (const r of recent) if (r.s === q && now - r.t < 0.3 && r.m - dr + mg > c.m) { harm = "H" + q; break; }
-      if (!harm && c.over < T + 6 && L[q] > -100 && heldT[q] > now - 1.6 && heldT[q] < c.t - 0.06 && L[q] - dr + mg > c.m) harm = "Hl" + q;
+      const Lq = lowQ && q + 12 < NS ? Math.max(L[q], L[q + 12]) : L[q];   // 저음은 기음보다 옥타브 배음이 셀 수 있음
+      if (!harm && c.over < T + 6 && Lq > -100 && heldT[q] > now - 1.6 && heldT[q] < c.t - 0.06 && Lq - dr + mg > c.m) harm = "Hl" + q;
       if (harm) break;
     }
     if (!harm) kept.push(c); else if (window.RKDBG) RKDBG.push([c.t, c.s + MIN_MIDI, harm]);
@@ -700,9 +723,11 @@ function analyze(dt) {
   for (let i = 0; i < kept.length && i < 8; i++) {
     const c = kept[i];
     const str = clamp(0.2 + (c.m - floorDb + tilt(c.s)) / 38 * 0.55 + clamp((c.over - T) / 25, 0, 1) * 0.35, 0.15, 1);
-    spawnNote(c.s, str, c.t);
+    const sf = lowFix(c);
+    spawnNote(sf, str, c.t);
     recent.push({ s: c.s, m: c.m, t: now });
     heldT[c.s] = c.t;
+    if (sf !== c.s) { recent.push({ s: sf, m: c.m, t: now }); heldT[sf] = c.t; }   // 진짜 기음 기준으로도 배음을 걸러냄
     if (c.s > 0) cool[c.s - 1] = Math.max(cool[c.s - 1], 0.07);
     if (c.s < NS - 1) cool[c.s + 1] = Math.max(cool[c.s + 1], 0.07);
   }
