@@ -253,14 +253,14 @@ void main(){
     vec2 xz=vec2(X,Z);
     float fp=Z*Z/(uF*uHc);
     vec2 fpv=vec2(Z/uF, fp);                     // 픽셀 하나가 덮는 월드 길이(가로, 깊이)
-    // 실제 수면처럼: 크기가 다른 파랑들이 바람 방향 주변의 조금씩 다른 방향에서 밀려오고,
-    // 각자 분산 관계 ω²=gk+σk³ 에 맞는 속도로 움직여(긴 파도는 빠르고 잔물결은 느림) 같은 모양이 반복되지 않음
+    // 실제 수면처럼: 크기가 다른 파랑들이 여러 방향(일부는 서로 맞부딪히는 방향)에서 겹쳐
+    // 전체가 한쪽으로 흘러가지 않고 제자리에서 출렁임. 각자 분산 관계 ω²=gk+σk³ 의 속도로 움직여 반복되지 않음
     float calm=uCalm*(0.9+0.1*sin(uTime*0.13));
     float hgt=0.0; vec2 sl=vec2(0.0);
     for(int i=0;i<NW;i++){
       float fi=float(i);
-      float L=7.0*pow(0.78,fi);
-      float ang=3.3+(hash21(vec2(fi,1.7))-0.5)*(1.4+1.6*fi/float(NW));
+      float L=4.0*pow(0.80,fi);
+      float ang=1.45+(hash21(vec2(fi,1.7))-0.5)*2.6+(hash21(vec2(fi,2.9))<0.45?3.14159:0.0);   // 옆바람 방향 ± 퍼짐, 45%는 반대 방향
       vec2 dir=vec2(sin(ang),cos(ang));
       float k=6.2831853/L;
       float om=sqrt(49.0*k+0.0074*k*k*k);
