@@ -90,7 +90,9 @@ function showMsg(t) { msg.textContent = t || ''; }
 
 let LOW = window.matchMedia('(pointer:coarse)').matches;
 $('low').checked = LOW;
-const G = 5.0;                       // 슬로모션 느낌의 중력(월드 단위/s²)
+const G = 5.0;                       // 효과 시간축의 중력(월드 단위/s²). TSCALE과 합쳐 실제 약 9m/s²
+// 실제 빗방울(지름 2~5mm) 스플래시 크기에 맞춘 축척: 길이 ×0.45, 속도 ×√0.45(→ 솟는 높이도 ×0.45)
+const S_L = 0.45, S_V = Math.sqrt(S_L);
 
 /* ======================================================================
    카메라: 높이 hc의 바늘구멍 카메라가 +Z를 봄.  화면 x = cx + f·X/Z,  y = y0 + f·(hc−Y)/Z
@@ -455,14 +457,14 @@ void main(){
     tr*=1.0-0.88*smoothstep(0.52,0.96,q);                                 // 가장자리 전반사 → 어두운 굴절 링
     float ca=pow(max(dot(N,normalize(vec3(0.25,-0.8,-0.45))),0.0),5.0);  // 아래쪽 집광
     col=refl*F*1.4+tr*(1.0-F)+vec3(0.95,0.95,1.0)*ca*0.3+vec3(1.0)*sp*0.7;
-    col=mix(col,vec3(0.8,0.84,0.95),smoothstep(2.6,0.9,vRad)*0.6);  // 너무 작으면 빛나는 점으로
+    col=mix(col,refl*0.7+vec3(0.12,0.13,0.17),smoothstep(2.6,0.9,vRad)*0.6);   // 아주 작은 방울은 주변 빛만 살짝 반사  // 너무 작으면 빛나는 점으로
   } else {                                                         // 기포: 얇은 막의 무지개 간섭색
     float F2=2.0*F/(1.0+F);
     vec3 ir=0.5+0.5*cos(6.2832*(cosT*1.7+vB.y*0.0+vec3(0.0,0.33,0.67)+P.x*8.0));
     vec3 tr=texture(uScene,uvP).rgb;
     col=refl*F2*1.5*mix(vec3(1.0),ir*1.5,0.6)+tr*(1.0-F2)+vec3(1.0)*sp*1.3+vec3(0.6,0.7,0.9)*smoothstep(0.8,1.0,q)*0.18;
   }
-  float a=cover*vB.y;
+  float a=cover*vB.y*clamp(vRad*vRad/2.5,0.1,1.0);              // 화면에서 1픽셀보다 작으면 면적만큼만 보임
   if(mir>0.5){ a*=exp(vC.y*14.0); o=vec4(col*0.3*a,a*0.12); return; }
   o=vec4(col*a,a);
 }`;
@@ -723,7 +725,7 @@ function spawnNote(s, str, tDet) {
   const fracX = keyFrac(midi) + rand(-0.2, 0.2) * (isBlack(midi) ? 0.6 : 1) / KB_WHITES;   // 건반 폭 안에서 살짝만 흔들림
   const T = fallT * rand(0.95, 1.05);
   keyGlow[midi] = 1;   // 소리가 들린 순간 해당 건반이 켜짐
-  makeDrop({ kind: 'hit', tImp: simT + T, T, Z: rand(2.4, 6.4), fracX, sz, e: sz * rand(0.9, 1.15), hue: keyHue(midi), midi, slant: windX * 0.3 + rand(-0.01, 0.01), startY: showKeys ? KB_Y + KB_H : -40 });
+  makeDrop({ kind: 'hit', tImp: simT + T, T, Z: rand(1.7, 4.2), fracX, sz, e: sz * rand(0.9, 1.15), hue: keyHue(midi), midi, slant: windX * 0.3 + rand(-0.01, 0.01), startY: showKeys ? KB_Y + KB_H : -40 });
   hitCount++; hitLog.push({ midi, t: tDet || clk() }); if (hitLog.length > 2000) hitLog.shift();
 }
 
@@ -781,8 +783,8 @@ function emit(X, Z, n, o) {
   for (let i = 0; i < n && parts.length < cap; i++) {
     let th = rand(0, TAU);
     if (o.bias && Math.random() < o.bias.amt) th = o.bias.ang + rand(-0.7, 0.7);
-    const el = rand(o.elMin || 0.7, o.elMax || 1.3), s = rand(0.6, 1.4) * o.sp;
-    let r = rand(0.003, 0.0075) * o.rs; if (Math.random() < 0.12) r *= 1.7;
+    const el = rand(o.elMin || 0.7, o.elMax || 1.3), s = rand(0.6, 1.4) * o.sp * S_V;
+    let r = rand(0.0012, 0.003) * o.rs; if (Math.random() < 0.12) r *= 1.7;
     const R0 = o.R0 || 0.01;
     parts.push({ X: X + Math.cos(th) * R0, Y: o.Y || 0.004, Z: Z + Math.sin(th) * R0,
       vx: Math.cos(th) * Math.cos(el) * s + (o.wind || 0) * 0.4, vy: Math.sin(el) * s, vz: Math.sin(th) * Math.cos(el) * s, r, hue: o.hue });
@@ -796,39 +798,40 @@ function emitMist(X, Z, n, hue, e) {
   }
 }
 function newCrater(X, Z, Rc, depthK, hue) {
-  const tc = rand(0.06, 0.09) * (0.8 + 0.25 * depthK);
+  const tc = rand(0.06, 0.09) * (0.8 + 0.25 * depthK) * S_V;
+  Rc *= S_L;
   craters.push({ X, Z, t: 0, Rc, Dm: Rc * rand(0.55, 0.85) * depthK, tc, life: tc * rand(3.2, 4.0), hue });
   return tc;
 }
 function newCrown(X, Z, e, hue, o) {
   o = o || {};
   const sc = (o.scale || 1) * rand(0.85, 1.15);
-  const R0 = (0.055 + 0.04 * e) * sc, Hm = (0.045 + 0.035 * e) * sc * (o.tall || 1);
-  const tp = rand(0.12, 0.17) * Math.sqrt(sc) * (o.tp || 1);
-  const k = o.tiny ? ((rand(6, 10)) | 0) : ((rand(12, LOW ? 16 : 24)) | 0);
+  const R0 = (0.055 + 0.04 * e) * sc * S_L, Hm = (0.045 + 0.035 * e) * sc * (o.tall || 1) * S_L * 0.8;
+  const tp = rand(0.12, 0.17) * Math.sqrt(sc) * (o.tp || 1) * S_V;
+  const k = o.tiny ? ((rand(6, 10)) | 0) : ((rand(10, LOW ? 14 : 18)) | 0);
   const arcW = o.arc || TAU, arcC = rand(0, TAU);
   const lig = [];
   for (let i = 0; i < k; i++) {
     const th = (i + rand(-0.3, 0.3)) / k * TAU;
     if (arcW < TAU && Math.abs(angd(th, arcC)) > arcW / 2 * 0.85) continue;
-    if (Math.random() < 0.12) continue;                               // 모든 손가락이 다 자라지는 않음
-    lig.push({ th, el: rand(0.95, 1.4), len: Hm * rand(0.25, 0.85), w: (0.0026 + 0.0012 * e) * sc * rand(0.8, 1.2), rb: (0.0045 + 0.003 * e) * sc * rand(0.7, 1.3), tdet: tp * rand(1.0, 1.9), det: false, two: Math.random() < 0.3 });
+    if (Math.random() < 0.3) continue;                                // 모든 손가락이 다 자라지는 않음
+    lig.push({ th, el: rand(0.95, 1.4), len: Hm * rand(0.1, 0.45), w: (0.0026 + 0.0012 * e) * sc * S_L * 1.2 * rand(0.8, 1.2), rb: (0.0045 + 0.003 * e) * sc * S_L * 1.2 * rand(0.7, 1.3), tdet: tp * rand(1.0, 1.9), det: false, two: Math.random() < 0.3 });
   }
   return { X, Z, t: o.delay ? -o.delay : 0, R0, Hm, tp, life: tp * rand(2.8, 3.4), lig, arcW, arcC, hue, e, sc,
     tilt: o.tilt || 0, tiltAng: o.tiltAng || 0, flare: rand(0.1, 0.45), w1: rand(0, TAU), w2: rand(0, TAU), wa: rand(0.03, 0.1), coll: false, tiny: !!o.tiny };
 }
 function newJet(X, Z, e, hue, delay, o) {
   o = o || {};
-  const vy = (0.6 + 0.3 * e) * (o.vy || 1) * rand(0.85, 1.15);
-  return { X, Z, t: -delay, vy, w: (0.0055 + 0.0035 * e) * (o.w || 1) * rand(0.85, 1.15), hue, e, det: false, tDet: 0, second: !!o.second, lean: o.lean || 0, leanAng: o.leanAng || 0, nb: 0 };
+  const vy = (0.6 + 0.3 * e) * (o.vy || 1) * rand(0.85, 1.15) * S_V;
+  return { X, Z, t: -delay, vy, w: (0.0055 + 0.0035 * e) * S_L * 1.2 * (o.w || 1) * rand(0.85, 1.15), hue, e, det: false, tDet: 0, second: !!o.second, lean: o.lean || 0, leanAng: o.leanAng || 0, nb: 0 };
 }
 const angd = (a, b) => { let d = (a - b) % TAU; if (d > Math.PI) d -= TAU; if (d < -Math.PI) d += TAU; return d; };
 function pickRegime(e) {
   const r = Math.random();
-  if (e < 0.5) return r < 0.45 ? 'dimple' : r < 0.75 ? 'bubble' : 'jet';
-  if (e < 0.85) return r < 0.15 ? 'dimple' : r < 0.3 ? 'bubble' : r < 0.72 ? 'jet' : 'crown';
-  if (e < 1.25) return r < 0.12 ? 'jet' : r < 0.48 ? 'crown' : r < 0.85 ? 'bigcrown' : 'cavity';
-  return r < 0.12 ? 'crown' : r < 0.5 ? 'bigcrown' : 'cavity';
+  if (e < 0.5) return r < 0.55 ? 'dimple' : r < 0.75 ? 'bubble' : 'jet';
+  if (e < 0.85) return r < 0.25 ? 'dimple' : r < 0.4 ? 'bubble' : r < 0.9 ? 'jet' : 'crown';
+  if (e < 1.25) return r < 0.4 ? 'jet' : r < 0.8 ? 'crown' : r < 0.9 ? 'bigcrown' : 'cavity';
+  return r < 0.25 ? 'jet' : r < 0.65 ? 'crown' : r < 0.85 ? 'bigcrown' : 'cavity';
 }
 function splash(X, Z, e, hue, wind, force) {
   const reg = force || pickRegime(e);
@@ -844,7 +847,7 @@ function splash(X, Z, e, hue, wind, force) {
   const Rc = (0.03 + 0.03 * e) * (0.6 + 0.5 * depth) * sc;
   const tc = newCrater(X, Z, Rc, reg === 'cavity' ? 1.5 : reg === 'dimple' ? 0.5 : 1, hue);
   // 착수 순간의 빠르고 낮은 각도의 미세 물보라(prompt splash)
-  emit(X, Z, reg === 'dimple' ? 2 : Math.round(rand(3, 7) * (0.6 + 0.4 * depth)), { sp: 0.8 + 0.6 * e, rs: 0.55, hue, bias, wind: wd, elMin: 0.25, elMax: 0.8, R0: Rc * 0.8 });
+  emit(X, Z, reg === 'dimple' ? 1 : Math.round(rand(2, 5) * (0.6 + 0.4 * depth)), { sp: 0.8 + 0.6 * e, rs: 0.55, hue, bias, wind: wd, elMin: 0.25, elMax: 0.8, R0: Rc * 0.8 });
   if (reg === 'dimple') {
     if (Math.random() < 0.4) jets.push(newJet(X, Z, e * 0.5, hue, tc * 2, { vy: 0.6, w: 0.6 }));
   } else if (reg === 'bubble') {
@@ -852,14 +855,13 @@ function splash(X, Z, e, hue, wind, force) {
     if (Math.random() < 0.4) jets.push(newJet(X, Z, e * 0.6, hue, tc * 2, { vy: 0.7, w: 0.7 }));
   } else if (reg === 'jet') {
     jets.push(newJet(X, Z, e, hue, tc * 2.1, { second: Math.random() < 0.5, lean: skew * 0.25, leanAng: ang }));
-    emit(X, Z, Math.round(rand(2, 5)), { sp: 0.5 + 0.4 * e, rs: 0.9, hue, bias, wind: wd, R0: Rc });
+    emit(X, Z, Math.round(rand(1, 3)), { sp: 0.5 + 0.4 * e, rs: 0.8, hue, bias, wind: wd, R0: Rc });
   } else {
     const big = reg !== 'crown';
     const partial = Math.random() < 0.28;
     crowns.push(newCrown(X, Z, e, hue, { scale: big ? 1.2 : 1, arc: partial ? rand(2.4, 4.8) : TAU, tilt: skew, tiltAng: ang, tall: reg === 'cavity' ? 1.35 : 1 }));
     if (reg === 'bigcrown' && Math.random() < 0.75) crowns.push(newCrown(X, Z, e * 0.8, hue, { scale: 0.55, delay: rand(0.05, 0.09), tall: 1.25, tp: 0.8 }));   // 이중 크라운
     jets.push(newJet(X, Z, e, hue, tc * 2.2, { vy: reg === 'cavity' ? 1.35 : 1, w: reg === 'cavity' ? 1.4 : 1, second: Math.random() < 0.6, lean: skew * 0.2, leanAng: ang }));
-    if (big) emitMist(X, Z, LOW ? 3 : 5 + ((Math.random() * 5) | 0), hue, e);
     if (reg === 'cavity' && Math.random() < 0.5) later(tc * 1.4, () => bubbles.push({ X: X + rand(-0.02, 0.02), Z: Z + rand(-0.02, 0.02), r: rand(0.008, 0.016), t: 0, life: rand(0.4, 1.0), hue, vx: rand(-0.04, 0.04), vz: rand(-0.04, 0.04) }));
   }
 }
@@ -1157,7 +1159,7 @@ function drawGL(t) {
   for (const d of drops) {
     const u = (simT - (d.tImp - d.T)) / d.T; if (u < 0 || u >= 1) continue;
     const Y = d.Y0 * (1 - u * u);
-    if (d.kind === 'hit') sph(d.X + d.slant * Y, Y, d.Z, 0.009 * (0.6 + d.sz * 0.6), d.hue, 1, 0);
+    if (d.kind === 'hit') sph(d.X + d.slant * Y, Y, d.Z, 0.0055 * (0.6 + d.sz * 0.6), d.hue, 1, 0);
   }
   const nReal = nS;
   // 거울상(수면 반사) 인스턴스
@@ -1242,7 +1244,7 @@ function fillStreaks() {
     const u = (simT - (d.tImp - d.T)) / d.T; if (u < 0 || u >= 1) continue;
     const Y = d.Y0 * (1 - u * u), sp = 2 * d.Y0 * u / d.T;
     const hit = d.kind === 'hit';
-    put(d.X + d.slant * Y, Y, d.Z, clamp(sp * 0.03, 0.02, 0.3), Math.max(hit ? 1.4 : 0.8, f * (hit ? 0.009 : 0.006) * (0.6 + d.sz * 0.6) / d.Z), hit ? 0.45 : 0.3, d.slant);
+    put(d.X + d.slant * Y, Y, d.Z, clamp(sp * 0.03, 0.02, 0.3), Math.max(hit ? 1.4 : 0.8, f * (hit ? 0.0055 : 0.004) * (0.6 + d.sz * 0.6) / d.Z), hit ? 0.45 : 0.3, d.slant);
   }
   return k;
 }
