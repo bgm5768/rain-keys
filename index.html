@@ -149,7 +149,7 @@ vec3 sky(vec3 d){
   c=mix(c, vec3(0.03,0.03,0.08), smoothstep(0.6,1.0,e));
   // 낮게 깔린 비구름: 도시 불빛에 아래쪽이 보랏빛으로 물듦
   if(d.y>0.0){
-    vec2 cp=d.xz/(d.y+0.06)*0.55+vec2(uTime*0.006,0.0);
+    vec2 cp=d.xz/(d.y+0.06)*0.55-vec2(uTime*0.018,0.0);           // 바람 따라 오른쪽으로 흘러가는 구름
     float cl=fbm(cp)*0.75+fbm(cp*2.7+5.0)*0.25;
     float hz=1.0-smoothstep(0.0,0.35,e);
     c*=0.72+0.6*smoothstep(0.3,0.75,cl);
@@ -260,7 +260,10 @@ void main(){
     for(int i=0;i<NW;i++){
       float fi=float(i);
       float L=4.0*pow(0.80,fi);
-      float ang=1.45+(hash21(vec2(fi,1.7))-0.5)*2.6+(hash21(vec2(fi,2.9))<0.45?3.14159:0.0);   // 옆바람 방향 ± 퍼짐, 45%는 반대 방향
+      // 물마루가 수평선과 거의 나란하도록(옆으로 가는 파도는 원근 때문에 소실점으로 모이는 '^'자 선이 되어 달리는 느낌을 줌),
+      // 다가오는 파도와 멀어지는 파도를 반반 섞어 서로 상쇄 → 앞뒤로 흘러가지 않고 제자리에서 오르내림
+      float sp=0.8+1.6*fi/float(NW);
+      float ang=(mod(fi,2.0)<0.5?0.0:3.14159)+(hash21(vec2(fi,1.7))-0.5)*sp;
       vec2 dir=vec2(sin(ang),cos(ang));
       float k=6.2831853/L;
       float om=sqrt(49.0*k+0.0074*k*k*k);
@@ -1248,16 +1251,17 @@ function drawGL(t) {
   gl.disable(gl.BLEND);
   gl.bindVertexArray(null);
 }
-/* 바람장(월드 단위/s): 천천히 바뀌는 바람 + 이따금 돌풍 + 위치마다 다른 난류.
-   X는 좌우, Z는 앞뒤(음수면 카메라 쪽으로 불어옴) */
-let windVX = 0, windVZ = -2;
+/* 바람장(월드 단위/s): 왼쪽→오른쪽으로 부는 한 방향 바람 + 이따금 돌풍 + 위치마다 다른 난류.
+   앞뒤(Z) 성분은 거의 없음 — 카메라 쪽으로 불면 빗줄기가 한 점에서 퍼져 '앞으로 달리는' 느낌이 나기 때문.
+   구름과 주된 파도 방향도 같은 바람을 따름 */
+let windVX = 3.2, windVZ = 0;
 function updateWind(t) {
   const gust = 2.6 * Math.pow(Math.max(0, Math.sin(t * 0.21 + 0.7)), 6);
-  windVX = 3.4 * Math.sin(t * 0.061) + 1.6 * Math.sin(t * 0.19 + 1.1) + gust;
-  windVZ = -5.0 + 2.2 * Math.sin(t * 0.083 + 2.0) - gust * 0.8;
+  windVX = 3.2 + 1.2 * Math.sin(t * 0.061) + 0.7 * Math.sin(t * 0.19 + 1.1) + gust;
+  windVZ = 0.5 * Math.sin(t * 0.083 + 2.0);
 }
 const turbX = (X, Y, Z, t) => 1.1 * Math.sin(0.9 * X + 1.7 * Y + 1.3 * t) + 0.6 * Math.sin(1.9 * Z - 0.8 * t + X);
-const turbZ = (X, Y, Z, t) => 0.9 * Math.sin(1.1 * Z + 1.3 * Y - 1.1 * t) + 0.5 * Math.sin(2.3 * X + 0.7 * t);
+const turbZ = (X, Y, Z, t) => 0.4 * Math.sin(1.1 * Z + 1.3 * Y - 1.1 * t) + 0.25 * Math.sin(2.3 * X + 0.7 * t);
 
 // 배경 빗방울: 화면 전체 깊이(0.5~18)에 흩어져 각자 중력·바람·난류로 3D 운동
 const KCAP = 1600, KB = new Float32Array(KCAP * 8), rainS = [];
