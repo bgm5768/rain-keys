@@ -599,11 +599,21 @@ function analyze(dt) {
 /* ======================================================================
    빗방울 생성
    ====================================================================== */
+// 실제 88건반(A0~C8) 배치: 흰 건반 52개를 화면 폭에 고르게 놓고, 검은 건반은 두 흰 건반 경계에 둠
+// → 피아노 영상에서 건반 위로 노트가 내려오는 자리와 같은 곳에 비가 떨어짐
+const KB_LO = 21, KB_HI = 108, KB_WHITES = 52, KB_M = 0.006, KB_Y = 8, KB_H = 26;
+const isBlack = m => [1, 3, 6, 8, 10].includes(((m % 12) + 12) % 12);
+const whiteIdx = new Int16Array(128);
+(() => { let w = -1; for (let m = KB_LO; m <= KB_HI; m++) { if (!isBlack(m)) w++; whiteIdx[m] = w; } })();
+const keyFrac = m => KB_M + (1 - 2 * KB_M) * (whiteIdx[m] + (isBlack(m) ? 1 : 0.5)) / KB_WHITES;
+const keyHue = m => 255 - 95 * clamp((m - MIN_MIDI) / (MAX_MIDI - MIN_MIDI), 0, 1);
+
 let windX = 0.0, windT = 0;
 function makeDrop(o) {
   const sx = o.fracX * W;
   const Z = o.Z, X = (sx - cx) * Z / f;
-  const Y0 = Math.max(hc * 0.6, hc - (-40 - y0) * Z / f);
+  const ys = o.startY !== undefined ? o.startY : -40;
+  const Y0 = Math.max(hc * 0.6, hc - (ys - y0) * Z / f);
   drops.push({ kind: o.kind, tImp: o.tImp, T: o.T, X, Z, Y0, sz: o.sz, e: o.e, hue: o.hue, midi: o.midi, slant: o.slant || 0 });
 }
 function spawnAmb() {
@@ -614,9 +624,10 @@ function spawnNote(s, str, tDet) {
   if (drops.length > 200) return;
   const midi = MIN_MIDI + s, lane = s / (NS - 1);
   const sz = lerp(1.7, 0.55, lane) * (0.6 + 0.8 * str) * rand(0.92, 1.08);
-  const fracX = clamp(0.04 + 0.92 * lane + rand(-0.006, 0.006), 0.02, 0.98);
+  const fracX = keyFrac(midi) + rand(-0.2, 0.2) * (isBlack(midi) ? 0.6 : 1) / KB_WHITES;   // 건반 폭 안에서 살짝만 흔들림
   const T = fallT * rand(0.95, 1.05);
-  makeDrop({ kind: 'hit', tImp: simT + T, T, Z: rand(2.4, 6.4), fracX, sz, e: sz * rand(0.9, 1.15), hue: 255 - 95 * lane, midi, slant: windX + rand(-0.03, 0.03) });
+  keyGlow[midi] = 1;   // 소리가 들린 순간 해당 건반이 켜짐
+  makeDrop({ kind: 'hit', tImp: simT + T, T, Z: rand(2.4, 6.4), fracX, sz, e: sz * rand(0.9, 1.15), hue: keyHue(midi), midi, slant: windX * 0.3 + rand(-0.01, 0.01), startY: showKeys ? KB_Y + KB_H : -40 });
   hitCount++; hitLog.push({ midi, t: tDet || clk() }); if (hitLog.length > 2000) hitLog.shift();
 }
 
@@ -757,7 +768,6 @@ function splash(X, Z, e, hue, wind, force) {
   }
 }
 function impact(d) {
-  if (d.midi != null) keyGlow[d.midi] = 1;
   if (d.kind === 'amb') {
     const e = d.sz;
     ripple(d.X, d.Z, 0.00045 * (0.6 + e * 2), 0.35 + e);
@@ -1107,13 +1117,32 @@ function drawSpheresRange(first, count) {
   gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, count);
 }
 
+// 위쪽 88건반 띠: 흰 건반 → 검은 건반 순서로 그림. 눌린 건반은 빛나고 아래로 빛이 번짐
 function drawKeys() {
-  for (let m = MIN_MIDI; m <= MAX_MIDI; m++) {
-    const lane = (m - MIN_MIDI) / (MAX_MIDI - MIN_MIDI), x = W * (0.04 + 0.92 * lane);
-    const blk = [1, 3, 6, 8, 10].includes(m % 12), w = Math.max(2.5, W * 0.92 / NS * 0.78), gl_ = keyGlow[m];
-    if (gl_ > 0.01) { g.fillStyle = `hsla(${(255 - 95 * lane) | 0},95%,${(62 + 22 * gl_) | 0}%,${(0.3 + 0.7 * gl_).toFixed(2)})`; g.fillRect(x - w / 2, 10, w, (blk ? 10 : 16) + gl_ * 8); }
-    else { g.fillStyle = blk ? 'rgba(120,140,200,0.24)' : 'rgba(200,215,255,0.16)'; g.fillRect(x - w / 2, 10, w, blk ? 9 : 15); }
+  const ww = W * (1 - 2 * KB_M) / KB_WHITES, x0 = W * KB_M, bh = KB_H * 0.62;
+  for (let m = KB_LO; m <= KB_HI; m++) {
+    if (isBlack(m)) continue;
+    const x = x0 + whiteIdx[m] * ww, gl_ = keyGlow[m];
+    g.fillStyle = gl_ > 0.01 ? `hsla(${keyHue(m) | 0},90%,${(70 + 20 * gl_) | 0}%,${(0.25 + 0.7 * gl_).toFixed(2)})` : 'rgba(215,225,255,0.13)';
+    g.fillRect(x + 0.5, KB_Y, ww - 1, KB_H);
   }
+  for (let m = KB_LO; m <= KB_HI; m++) {
+    if (!isBlack(m)) continue;
+    const xc = x0 + (whiteIdx[m] + 1) * ww, bw = ww * 0.58, gl_ = keyGlow[m];
+    g.fillStyle = gl_ > 0.01 ? `hsla(${keyHue(m) | 0},95%,${(55 + 25 * gl_) | 0}%,${(0.45 + 0.55 * gl_).toFixed(2)})` : 'rgba(8,10,28,0.72)';
+    g.fillRect(xc - bw / 2, KB_Y, bw, bh);
+  }
+  g.fillStyle = 'rgba(200,215,255,0.22)'; g.fillRect(x0, KB_Y + KB_H, W - 2 * x0, 1);
+  g.globalCompositeOperation = 'lighter';
+  for (let m = KB_LO; m <= KB_HI; m++) {
+    const gl_ = keyGlow[m]; if (gl_ < 0.02) continue;
+    const xc = W * keyFrac(m), y = KB_Y + KB_H, R = ww * 1.1;
+    const gr = g.createRadialGradient(0, 0, 0, 0, 0, R);
+    gr.addColorStop(0, `hsla(${keyHue(m) | 0},95%,80%,${(0.55 * gl_).toFixed(3)})`); gr.addColorStop(1, `hsla(${keyHue(m) | 0},95%,70%,0)`);
+    g.save(); g.translate(xc, y); g.scale(1, 3.2);
+    g.fillStyle = gr; g.fillRect(-R, 0, 2 * R, R); g.restore();
+  }
+  g.globalCompositeOperation = 'source-over';
 }
 // 2D 오버레이: 낙하 궤적(모션 블러), 착수 순간의 빛, 건반
 function render2D() {
