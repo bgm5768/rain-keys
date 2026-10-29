@@ -149,7 +149,7 @@ vec3 sky(vec3 d){
   c=mix(c, vec3(0.03,0.03,0.08), smoothstep(0.6,1.0,e));
   // 낮게 깔린 비구름: 도시 불빛에 아래쪽이 보랏빛으로 물듦
   if(d.y>0.0){
-    vec2 cp=d.xz/(d.y+0.06)*0.55-vec2(uTime*0.007,0.0);           // 바람 따라 오른쪽으로 흘러가는 구름
+    vec2 cp=d.xz/(d.y+0.06)*0.55-vec2(uTime*0.0015,0.0);          // 거의 멈춘 듯 아주 느리게 흐르는 구름(수면에 비친 구름이 옆으로 흘러 보이지 않게)
     float cl=fbm(cp)*0.75+fbm(cp*2.7+5.0)*0.25;
     float hz=1.0-smoothstep(0.0,0.35,e);
     c*=0.72+0.6*smoothstep(0.3,0.75,cl);
@@ -1254,10 +1254,10 @@ function drawGL(t) {
 /* 바람장(월드 단위/s): 왼쪽→오른쪽으로 부는 한 방향 바람 + 이따금 돌풍 + 위치마다 다른 난류.
    앞뒤(Z) 성분은 거의 없음 — 카메라 쪽으로 불면 빗줄기가 한 점에서 퍼져 '앞으로 달리는' 느낌이 나기 때문.
    구름과 주된 파도 방향도 같은 바람을 따름 */
-let windVX = 1.1, windVZ = 0;
+let windVX = 0.45, windVZ = 0;
 function updateWind(t) {
-  const gust = 0.8 * Math.pow(Math.max(0, Math.sin(t * 0.13 + 0.7)), 6);
-  windVX = 1.1 + 0.4 * Math.sin(t * 0.041) + 0.2 * Math.sin(t * 0.11 + 1.1) + gust;
+  const gust = 0.35 * Math.pow(Math.max(0, Math.sin(t * 0.13 + 0.7)), 6);
+  windVX = 0.45 + 0.2 * Math.sin(t * 0.041) + 0.1 * Math.sin(t * 0.11 + 1.1) + gust;
   windVZ = 0.2 * Math.sin(t * 0.053 + 2.0);
 }
 const turbX = (X, Y, Z, t) => 0.4 * Math.sin(0.9 * X + 1.7 * Y + 0.8 * t) + 0.2 * Math.sin(1.9 * Z - 0.5 * t + X);
