@@ -184,7 +184,7 @@ vec3 ripple(vec2 xz, vec2 fpv){   // fpv: 픽셀 하나가 덮는 월드 길이(
     float lam=0.05*s, c=0.30*sqrt(s);
     float fpr=length(fpv*d/max(r,1e-4));
     if(r>c*2.4*t+lam*4.0) continue;
-    float A=a.w*exp(-t/(0.5+0.7*s))/sqrt(1.0+r/(lam*1.5));
+    float A=a.w*exp(-t/(1.2+1.6*s))/sqrt(1.0+r/(lam*1.5));        // 잔잔한 물에서는 파문이 오래·멀리 퍼짐(실제 시간 약 1~2초)
     float h=0.0, dh=0.0;
     for(int j=0;j<3;j++){
       float m = j==0?1.0:(j==1?0.6:0.36);
@@ -580,7 +580,7 @@ function ripple(X, Z, A, s, delay) {
   if (EV.length >= EVMAX) {
     let wi = -1, wv = 1e9;
     for (let i = 0; i < EV.length; i++) {
-      const e = EV[i], age = Math.max(0, fxT - e.t0), v = e.A * Math.exp(-age / (0.5 + 0.7 * e.s));
+      const e = EV[i], age = Math.max(0, fxT - e.t0), v = e.A * Math.exp(-age / (1.2 + 1.6 * e.s));
       if (v < wv) { wv = v; wi = i; }
     }
     if (A < wv) return;
@@ -937,7 +937,7 @@ function crownH(c, th, Hc) {
 function updateFx(dt) {
   windT += dt; windX = 0.09 * Math.sin(windT * 0.11) + 0.05 * Math.sin(windT * 0.37 + 1.3);
   for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= dt; if (timers[i].t <= 0) { const fn = timers[i].fn; timers.splice(i, 1); fn(); } }
-  for (let i = EV.length - 1; i >= 0; i--) { const e = EV[i]; if (fxT - e.t0 > 3.2 * (0.5 + 0.7 * e.s)) EV.splice(i, 1); }
+  for (let i = EV.length - 1; i >= 0; i--) { const e = EV[i]; if (fxT - e.t0 > 3.2 * (1.2 + 1.6 * e.s)) EV.splice(i, 1); }
   const cap = PCAP();
   for (let i = parts.length - 1; i >= 0; i--) {
     const p = parts[i];
@@ -1208,7 +1208,7 @@ function drawGL(t) {
   gl.bindFramebuffer(gl.FRAMEBUFFER, fbo); gl.viewport(0, 0, fboW, fboH);
   gl.disable(gl.BLEND);
   gl.useProgram(pSea); commonUniforms(pSea, t);
-  gl.uniform2f(pSea.u.uFbo, fboW, fboH); gl.uniform1f(pSea.u.uPx, fboW / W); gl.uniform1f(pSea.u.uCalm, 0.18); gl.uniform1f(pSea.u.uRain, RAIN * Math.pow(rainAmt, 0.7)); gl.uniform1i(pSea.u.uRainL, LOW ? 1 : 3);
+  gl.uniform2f(pSea.u.uFbo, fboW, fboH); gl.uniform1f(pSea.u.uPx, fboW / W); gl.uniform1f(pSea.u.uCalm, 0.035);   // 물 스스로의 물결은 거의 없음 — 움직임은 빗방울이 만듦 gl.uniform1f(pSea.u.uRain, RAIN * Math.pow(rainAmt, 0.7)); gl.uniform1i(pSea.u.uRainL, LOW ? 1 : 3);
   gl.bindVertexArray(vaoFull); gl.drawArrays(gl.TRIANGLES, 0, 3);
   // 2) 화면으로 복사
   gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, glc.width, glc.height);
@@ -1278,7 +1278,7 @@ function spawnDrizzle(midi, lv) {
 }
 let impTok = 0;
 function updateStreaks(dt) {
-  impTok = Math.min(2, impTok + dt * (LOW ? 4 : 8));
+  impTok = Math.min(3, impTok + dt * (LOW ? 7 : 14));
   for (let i = rainS.length - 1; i >= 0; i--) {
     const s = rainS[i];
     const tx = windVX + turbX(s.X, s.Y, s.Z, simT), tz = windVZ + turbZ(s.X, s.Y, s.Z, simT);
