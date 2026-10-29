@@ -118,18 +118,12 @@ const vec3 LD2 = vec3(-0.5267, 0.0297, 0.8496);
 const vec3 DEEP = vec3(0.016,0.045,0.088);
 float hash21(vec2 p){ p=fract(p*vec2(123.34,456.21)); p+=dot(p,p+45.32); return fract(p.x*p.y); }
 vec3 hueRGB(float h){ return clamp(abs(mod(h/60.0+vec3(0.0,4.0,2.0),6.0)-3.0)-1.0,0.0,1.0); }
+float vnoise(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
+  return mix(mix(hash21(i),hash21(i+vec2(1,0)),f.x),mix(hash21(i+vec2(0,1)),hash21(i+vec2(1,1)),f.x),f.y); }
+float fbm(vec2 p){ float s=0.0, a=0.5; for(int i=0;i<4;i++){ s+=a*vnoise(p); p=p*2.03+17.1; a*=0.5; } return s; }
+// 먼 해안의 불빛(비안개 속이라 번진 원형 보케). 별은 없음 — 비 오는 밤하늘은 구름에 덮여 있음
 vec3 decor(vec2 pr){
   vec3 c=vec3(0.0);
-  if(pr.y < uY0-24.0){
-    vec2 gg=pr/13.0; vec2 id=floor(gg); vec2 fr=fract(gg)-0.5;
-    float h=hash21(id);
-    if(h>0.9){
-      vec2 off=vec2(hash21(id+7.1),hash21(id+3.3))-0.5;
-      float dd=length(fr-off*0.6);
-      float tw=0.65+0.35*sin(uTime*(1.0+h*3.0)+h*40.0);
-      c+=vec3(0.82,0.88,1.0)*smoothstep(0.14,0.0,dd)*(h-0.9)*9.0*tw;
-    }
-  }
   float by=uY0-pr.y;
   if(by>0.0 && by<34.0){
     vec2 gg=vec2(pr.x/18.0, by/17.0); vec2 id=floor(gg); vec2 fr=fract(gg)-0.5;
@@ -147,12 +141,20 @@ vec3 decor(vec2 pr){
 }
 vec3 sky(vec3 d){
   float e=clamp(d.y,0.0,1.0);
-  vec3 c=mix(vec3(0.44,0.30,0.58), vec3(0.29,0.22,0.49), smoothstep(0.0,0.05,e));
-  c=mix(c, vec3(0.125,0.14,0.34), smoothstep(0.05,0.2,e));
-  c=mix(c, vec3(0.05,0.067,0.18), smoothstep(0.2,0.55,e));
-  c=mix(c, vec3(0.02,0.027,0.078), smoothstep(0.55,1.0,e));
-  float m=max(dot(d,LD0),0.0);
-  c+=vec3(0.80,0.87,1.0)*(0.30*pow(m,40.0)+0.25*pow(m,300.0)+1.5*smoothstep(0.99995,0.999968,m));
+  vec3 c=mix(vec3(0.42,0.29,0.55), vec3(0.27,0.20,0.44), smoothstep(0.0,0.05,e));
+  c=mix(c, vec3(0.13,0.12,0.29), smoothstep(0.05,0.22,e));
+  c=mix(c, vec3(0.06,0.06,0.15), smoothstep(0.22,0.6,e));
+  c=mix(c, vec3(0.03,0.03,0.08), smoothstep(0.6,1.0,e));
+  // 낮게 깔린 비구름: 도시 불빛에 아래쪽이 보랏빛으로 물듦
+  if(d.y>0.0){
+    vec2 cp=d.xz/(d.y+0.06)*0.55+vec2(uTime*0.006,0.0);
+    float cl=fbm(cp)*0.75+fbm(cp*2.7+5.0)*0.25;
+    float hz=1.0-smoothstep(0.0,0.35,e);
+    c*=0.72+0.6*smoothstep(0.3,0.75,cl);
+    c+=vec3(0.10,0.05,0.12)*hz*smoothstep(0.45,0.8,cl);
+  }
+  float m=max(dot(d,LD0),0.0);                                     // 구름 뒤의 달: 원반 없이 번진 빛만
+  c+=vec3(0.70,0.76,0.95)*(0.22*pow(m,12.0)+0.18*pow(m,60.0));
   float n=max(dot(d,LD1),0.0);
   c+=vec3(1.0,0.33,0.64)*(0.42*pow(n,60.0)+0.5*pow(n,500.0));
   float a=max(dot(d,LD2),0.0);
@@ -196,6 +198,36 @@ vec3 ripple(vec2 xz, float fp){
   }
   return acc;
 }
+// 수면 전체에 끊임없이 떨어지는 빗방울의 파문(절차적, 셀마다 무작위 위치·시각·크기)
+uniform float uRain; uniform int uRainL;
+vec3 rainField(vec2 xz, float fp){
+  vec3 acc=vec3(0.0);
+  for(int L=0;L<3;L++){
+    if(L>=uRainL) break;
+    float cs=0.55+0.3*float(L);
+    vec2 off=vec2(float(L)*17.13,float(L)*5.71);
+    vec2 id=floor(xz/cs+off);
+    for(int j=-1;j<=1;j++) for(int i=-1;i<=1;i++){
+      vec2 c=id+vec2(float(i),float(j));
+      if(hash21(c+71.3)>uRain) continue;
+      float h1=hash21(c), h2=hash21(c+31.7);
+      float per=0.35+0.8*h1, life=0.4+0.15*h2;
+      float t=mod(uTime+h2*13.0, per);
+      if(t>life) continue;
+      vec2 ctr=(c+vec2(hash21(c+5.1),hash21(c+9.7))-off)*cs;
+      vec2 d=xz-ctr; float r=length(d);
+      float rc=1.15*t+0.01, lam=0.05+0.025*h1, w=lam*1.3+0.12*rc;
+      float q=(r-rc)/w;
+      if(abs(q)>3.0) continue;
+      float k=6.2831853/lam, fl=1.0-t/life;
+      float A=(0.0009+0.0018*h1*h1)*fl*fl/sqrt(1.0+r*8.0)*smoothstep(1.2*fp,3.0*fp,lam);
+      float en=exp(-q*q), ph=k*(r-rc);
+      acc.x+=A*en*cos(ph);
+      acc.yz+=-A*en*k*sin(ph)*d/max(r,1e-4);
+    }
+  }
+  return acc;
+}
 `;
 
 const VS_FULL = `#version 300 es
@@ -230,8 +262,12 @@ void main(){
       hgt+=amp*sin(arg);
       sl+=amp*k*cos(arg)*dir;
     }
-    vec3 rp=ripple(xz,fp);
+    vec3 rp=ripple(xz,fp)+rainField(xz,fp);
     sl+=rp.yz;
+    // 먼 곳: 파문 하나하나는 안 보이고 빗방울에 거칠어진 수면이 반짝임
+    float far=1.0-smoothstep(1.2*fp,3.0*fp,0.06);
+    vec2 nz=vec2(vnoise(xz*7.0+vec2(uTime*2.3,0.0)),vnoise(xz*7.0+vec2(7.3,uTime*2.9)))-0.5;
+    sl+=nz*0.45*far*uRain;
     vec3 v=normalize(vec3(X,-uHc,Z));
     vec3 n=normalize(vec3(-sl.x,1.0,-sl.y));
     vec3 r=reflect(v,n); r.y=abs(r.y);
@@ -250,16 +286,65 @@ void main(){
   o=vec4(clamp(col,0.0,1.0),1.0);
 }`;
 
+// 카메라 느낌: 초점 거리(약 2.9) 밖은 피사계 심도 흐림, 밝은 불빛은 번짐, 비네팅
 const FS_BLIT = `#version 300 es
 precision highp float;
-uniform sampler2D uScene; uniform vec2 uCanvas;
+uniform sampler2D uScene; uniform vec2 uCanvas; uniform float uY0d, uFHd, uDpr; uniform int uTaps;
 out vec4 o;
 void main(){
-  vec2 uv=gl_FragCoord.xy/uCanvas;
-  vec3 c=texture(uScene,uv).rgb;
+  vec2 fc=gl_FragCoord.xy, uv=fc/uCanvas;
+  float yp=uCanvas.y-fc.y, dy=yp-uY0d;
+  float iz=dy>0.0?dy/uFHd:0.0;                                    // 1/거리
+  const float IZF=0.35;
+  float coc=(iz<IZF?(IZF-iz)*12.0:(iz-IZF)*3.0)*uDpr;
+  coc=min(coc,8.0*uDpr);
+  vec3 acc=texture(uScene,uv).rgb, bl=vec3(0.0); float ws=1.0;
+  for(int i=0;i<16;i++){
+    if(i>=uTaps) break;
+    float a=float(i)*2.39996, r=sqrt((float(i)+0.5)/float(uTaps));
+    vec2 d=vec2(cos(a),sin(a))*r;
+    acc+=texture(uScene,(fc+d*coc)/uCanvas).rgb; ws+=1.0;
+    vec3 b=texture(uScene,(fc+d*(18.0*uDpr+coc*2.0))/uCanvas).rgb;
+    bl+=max(b-vec3(0.45),0.0);
+  }
+  vec3 c=acc/ws+bl/float(max(uTaps,1))*0.55;
   vec2 q=(uv-vec2(0.5,0.45))*vec2(1.0,1.15);
-  c*=1.0-0.5*smoothstep(0.35,0.85,length(q));
+  c*=1.0-0.45*smoothstep(0.35,0.85,length(q));
   o=vec4(c,1.0);
+}`;
+// 화면 전체 마무리: 필름 그레인(실사 영상 느낌)
+const FS_GRAIN = `#version 300 es
+precision highp float;
+uniform float uTime; out vec4 o;
+float h12(vec2 p){ p=fract(p*vec2(123.34,456.21)); p+=dot(p,p+45.32); return fract(p.x*p.y); }
+void main(){
+  float n=h12(floor(gl_FragCoord.xy)+fract(uTime*7.31)*97.0)-0.5;
+  o=vec4(vec3(n>0.0?1.0:0.0)*abs(n)*0.07, abs(n)*0.07);
+}`;
+// 빗줄기: 셔터 동안 움직인 만큼 늘어난 가는 선. 뒤 배경의 빛을 굴절해 받아 밝게 보임
+const VS_STK = COMMON + `
+in vec2 aQ; in vec4 iA; in vec4 iB;
+out vec2 vUV; out vec2 vPx; flat out float vA;
+vec2 pj(vec3 P){ float Z=max(P.z,0.05); return vec2(uCx+uF*P.x/Z, uY0+uF*(uHc-P.y)/Z); }
+void main(){
+  vec2 h=pj(iA.xyz), t=pj(iA.xyz+vec3(iB.z*iA.w,iA.w,0.0));
+  vec2 dir=t-h; float L=max(length(dir),1.0); dir/=L;
+  vec2 nr=vec2(-dir.y,dir.x);
+  float w=iB.x, u=aQ.y*0.5+0.5;
+  vec2 p=h+dir*(u*(L+w)-w*0.5)+nr*aQ.x*w*0.5;
+  vUV=vec2(aQ.x,u); vPx=p; vA=iB.y;
+  gl_Position=vec4(p.x/uView.x*2.0-1.0, 1.0-p.y/uView.y*2.0, 0.0, 1.0);
+}`;
+const FS_STK = COMMON + `
+in vec2 vUV; in vec2 vPx; flat in float vA;
+uniform sampler2D uScene;
+out vec4 o;
+void main(){
+  vec2 uv=vec2(vPx.x,uView.y-vPx.y)/uView;
+  vec3 bg=texture(uScene,clamp(uv+vec2(vUV.x*0.003,0.0),0.001,0.999)).rgb;
+  vec3 c=bg*1.9+vec3(0.13,0.13,0.17);
+  float a=vA*pow(1.0-abs(vUV.x),1.5)*smoothstep(0.0,0.12,vUV.y)*smoothstep(1.0,0.55,vUV.y);
+  o=vec4(c*a,a);
 }`;
 
 // 물막(크라운·제트)과 분화구 수면: 실제 3D 삼각형. 프레넬 반사 + 배경 굴절 + 거울상
@@ -299,12 +384,11 @@ void main(){
     float Ff=mix(2.0*F/(1.0+F),F,th);                              // 얇은 막: 앞·뒤 두 면 반사
     vec2 off=N.xy*(0.004+0.016*th)*(4.0/max(vP.z,1.0));
     vec3 tr=texture(uScene,clamp(uv-off,0.001,0.999)).rgb;
-    tr*=mix(vec3(1.0),vec3(0.72,0.88,1.0),th*0.7);
-    tr+=vec3(0.03,0.045,0.07)*th;
-    col=refl*Ff*1.25+tr*(1.0-Ff)+hc3*0.05*th;
+    tr*=mix(vec3(1.0),vec3(0.9,0.95,1.0),th*0.5);
+    col=refl*Ff*1.35+tr*(1.0-Ff);
     float sp=pow(max(dot(reflect(v,N),normalize(vec3(-0.35,0.55,-0.75))),0.0),40.0);
-    col+=vec3(0.9,0.95,1.0)*sp*0.5*(0.4+th);
-    col+=mix(vec3(0.75,0.85,1.0),hc3,0.3)*smoothstep(0.75,1.0,th)*0.22;   // 두꺼운 림이 빛을 모음
+    col+=vec3(0.9,0.95,1.0)*sp*0.15*(0.4+th);
+    col+=vec3(0.75,0.82,0.95)*smoothstep(0.75,1.0,th)*0.07;   // 두꺼운 림이 빛을 모음
   } else {
     // 분화구: 바다 이미지를 경사만큼 밀어 일그러뜨리고(반사가 휨), 깊은 곳은 어둡게, 솟은 가장자리는 빛남
     vec2 off=vec2(-N.x,N.z)*0.05*(4.0/max(vP.z,1.0));
@@ -345,7 +429,7 @@ void main(){
   vec3 hc3=hueRGB(vB.x);
   if(kind>1.5){                                                    // 물보라(미스트)
     float s=max(0.0,1.0-q*q); s*=s;
-    vec3 c=mix(vec3(0.86,0.9,1.0),hc3,0.25)*0.9;
+    vec3 c=vec3(0.78,0.8,0.92)*0.8;
     float a=s*vB.y*(mir>0.5?0.35:1.0);
     o=vec4(c*a,a); return;
   }
@@ -367,11 +451,11 @@ void main(){
   float sp=pow(max(dot(R,normalize(vec3(-0.35,0.55,-0.75))),0.0),90.0);
   if(kind<0.5){
     vec3 tr=texture(uScene,clamp(uvC-(uvP-uvC)*2.6,0.001,0.999)).rgb;   // 볼록렌즈: 뒤집힌 배경
-    tr=tr*1.25+vec3(0.025,0.035,0.06);
+    tr=tr*1.12+vec3(0.01,0.012,0.02);
     tr*=1.0-0.88*smoothstep(0.52,0.96,q);                                 // 가장자리 전반사 → 어두운 굴절 링
     float ca=pow(max(dot(N,normalize(vec3(0.25,-0.8,-0.45))),0.0),5.0);  // 아래쪽 집광
-    col=refl*F*1.4+tr*(1.0-F)+mix(vec3(1.0),hc3,0.45)*ca*0.55+vec3(1.0)*sp*1.6;
-    col=mix(col,mix(vec3(0.85,0.92,1.0),hc3,0.3),smoothstep(2.6,0.9,vRad)*0.75);  // 너무 작으면 빛나는 점으로
+    col=refl*F*1.4+tr*(1.0-F)+vec3(0.95,0.95,1.0)*ca*0.3+vec3(1.0)*sp*0.7;
+    col=mix(col,vec3(0.8,0.84,0.95),smoothstep(2.6,0.9,vRad)*0.6);  // 너무 작으면 빛나는 점으로
   } else {                                                         // 기포: 얇은 막의 무지개 간섭색
     float F2=2.0*F/(1.0+F);
     vec3 ir=0.5+0.5*cos(6.2832*(cosT*1.7+vB.y*0.0+vec3(0.0,0.33,0.67)+P.x*8.0));
@@ -387,8 +471,8 @@ void main(){
    WebGL 초기화
    ====================================================================== */
 const gl = glc.getContext('webgl2', { antialias: true, alpha: false, premultipliedAlpha: false, powerPreference: 'high-performance' });
-let glReady = false, pSea, pBlit, pMesh, pSph, fbo = null, fboTex = null, fboW = 0, fboH = 0;
-let meshBuf, sphBuf, quadBuf, vaoMesh, vaoSph, vaoFull;
+let glReady = false, pSea, pBlit, pMesh, pSph, pStk, pGrain, fbo = null, fboTex = null, fboW = 0, fboH = 0;
+let meshBuf, sphBuf, quadBuf, stkBuf, vaoMesh, vaoSph, vaoStk, vaoFull;
 function compile(type, src) {
   const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
   if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) { console.error(gl.getShaderInfoLog(s)); throw new Error('shader compile'); }
@@ -414,6 +498,7 @@ function initGL() {
   if (!gl) throw new Error('webgl2');
   pSea = program(VS_FULL, FS_SEA); pBlit = program(VS_FULL, FS_BLIT);
   pMesh = program(VS_MESH, FS_MESH); pSph = program(VS_SPH, FS_SPH);
+  pStk = program(VS_STK, FS_STK); pGrain = program(VS_FULL, FS_GRAIN);
   vaoFull = gl.createVertexArray();
   vaoMesh = gl.createVertexArray(); gl.bindVertexArray(vaoMesh);
   meshBuf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, meshBuf);
@@ -431,6 +516,14 @@ function initGL() {
   gl.bufferData(gl.ARRAY_BUFFER, SCAP * 32, gl.DYNAMIC_DRAW);
   gl.enableVertexAttribArray(ls('iA')); gl.vertexAttribPointer(ls('iA'), 4, gl.FLOAT, false, 32, 0); gl.vertexAttribDivisor(ls('iA'), 1);
   gl.enableVertexAttribArray(ls('iB')); gl.vertexAttribPointer(ls('iB'), 4, gl.FLOAT, false, 32, 16); gl.vertexAttribDivisor(ls('iB'), 1);
+  vaoStk = gl.createVertexArray(); gl.bindVertexArray(vaoStk);
+  gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
+  const lk = n => gl.getAttribLocation(pStk, n);
+  gl.enableVertexAttribArray(lk('aQ')); gl.vertexAttribPointer(lk('aQ'), 2, gl.FLOAT, false, 8, 0);
+  stkBuf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, stkBuf);
+  gl.bufferData(gl.ARRAY_BUFFER, KCAP * 32, gl.DYNAMIC_DRAW);
+  gl.enableVertexAttribArray(lk('iA')); gl.vertexAttribPointer(lk('iA'), 4, gl.FLOAT, false, 32, 0); gl.vertexAttribDivisor(lk('iA'), 1);
+  gl.enableVertexAttribArray(lk('iB')); gl.vertexAttribPointer(lk('iB'), 4, gl.FLOAT, false, 32, 16); gl.vertexAttribDivisor(lk('iB'), 1);
   gl.bindVertexArray(null);
   glReady = true;
 }
@@ -465,18 +558,21 @@ const keyGlow = new Float32Array(128);
 let started = false, showKeys = true;
 let fallT = 0.3, sens = 0.5, ambAcc = 0, hitCount = 0;
 const hitLog = [];
-let simT = 0;
+let simT = 0, fxT = 0;
+// 스플래시·파문의 시간 배속. 3이면 거의 실제 속도(이전 버전은 약 3배 슬로모션)
+const TSCALE = 3.0;
+const RAIN = 0.85;   // 수면에 떨어지는 배경 비의 밀도(0~1)
 const clk = () => performance.now() / 1000;
 function later(dt, fn) { timers.push({ t: dt, fn }); }
 const PCAP = () => LOW ? 450 : 1400;
 
 // 파문 사건 등록(가장 약해진 것부터 교체)
 function ripple(X, Z, A, s, delay) {
-  const t0 = simT + (delay || 0);
+  const t0 = fxT + (delay || 0);
   if (EV.length >= EVMAX) {
     let wi = -1, wv = 1e9;
     for (let i = 0; i < EV.length; i++) {
-      const e = EV[i], age = Math.max(0, simT - e.t0), v = e.A * Math.exp(-age / (0.5 + 0.7 * e.s));
+      const e = EV[i], age = Math.max(0, fxT - e.t0), v = e.A * Math.exp(-age / (0.5 + 0.7 * e.s));
       if (v < wv) { wv = v; wi = i; }
     }
     if (A < wv) return;
@@ -723,8 +819,8 @@ function newCrown(X, Z, e, hue, o) {
 }
 function newJet(X, Z, e, hue, delay, o) {
   o = o || {};
-  const vy = (0.85 + 0.45 * e) * (o.vy || 1) * rand(0.88, 1.12);
-  return { X, Z, t: -delay, vy, w: (0.0075 + 0.005 * e) * (o.w || 1) * rand(0.85, 1.15), hue, e, det: false, tDet: 0, second: !!o.second, lean: o.lean || 0, leanAng: o.leanAng || 0, nb: 0 };
+  const vy = (0.6 + 0.3 * e) * (o.vy || 1) * rand(0.85, 1.15);
+  return { X, Z, t: -delay, vy, w: (0.0055 + 0.0035 * e) * (o.w || 1) * rand(0.85, 1.15), hue, e, det: false, tDet: 0, second: !!o.second, lean: o.lean || 0, leanAng: o.leanAng || 0, nb: 0 };
 }
 const angd = (a, b) => { let d = (a - b) % TAU; if (d > Math.PI) d -= TAU; if (d < -Math.PI) d += TAU; return d; };
 function pickRegime(e) {
@@ -800,7 +896,7 @@ function crownH(c, th, Hc) {
 function updateFx(dt) {
   windT += dt; windX = 0.09 * Math.sin(windT * 0.11) + 0.05 * Math.sin(windT * 0.37 + 1.3);
   for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= dt; if (timers[i].t <= 0) { const fn = timers[i].fn; timers.splice(i, 1); fn(); } }
-  for (let i = EV.length - 1; i >= 0; i--) { const e = EV[i]; if (simT - e.t0 > 3.2 * (0.5 + 0.7 * e.s)) EV.splice(i, 1); }
+  for (let i = EV.length - 1; i >= 0; i--) { const e = EV[i]; if (fxT - e.t0 > 3.2 * (0.5 + 0.7 * e.s)) EV.splice(i, 1); }
   const cap = PCAP();
   for (let i = parts.length - 1; i >= 0; i--) {
     const p = parts[i];
@@ -1049,7 +1145,7 @@ function commonUniforms(p, t) {
   if (p.u.uEvA) { gl.uniform4fv(p.u.uEvA, evA); gl.uniform4fv(p.u.uEvB, evB); gl.uniform1i(p.u.uEvN, EV.length); }
 }
 function drawGL(t) {
-  for (let i = 0; i < EV.length; i++) { const e = EV[i]; evA[i * 4] = e.X; evA[i * 4 + 1] = e.Z; evA[i * 4 + 2] = simT - e.t0; evA[i * 4 + 3] = e.A; evB[i * 4] = e.s; }
+  for (let i = 0; i < EV.length; i++) { const e = EV[i]; evA[i * 4] = e.X; evA[i * 4 + 1] = e.Z; evA[i * 4 + 2] = fxT - e.t0; evA[i * 4 + 3] = e.A; evB[i * 4] = e.s; }
   // 메쉬·구 구성
   nC = nF = nN = nS = 0;
   for (const c of craters) buildCrater(c);
@@ -1061,7 +1157,7 @@ function drawGL(t) {
   for (const d of drops) {
     const u = (simT - (d.tImp - d.T)) / d.T; if (u < 0 || u >= 1) continue;
     const Y = d.Y0 * (1 - u * u);
-    sph(d.X + d.slant * Y, Y, d.Z, (d.kind === 'amb' ? 0.007 : 0.011) * (0.6 + d.sz * 0.6), d.hue, d.kind === 'amb' ? 0.7 : 1, 0);
+    if (d.kind === 'hit') sph(d.X + d.slant * Y, Y, d.Z, 0.009 * (0.6 + d.sz * 0.6), d.hue, 1, 0);
   }
   const nReal = nS;
   // 거울상(수면 반사) 인스턴스
@@ -1076,12 +1172,13 @@ function drawGL(t) {
   gl.bindFramebuffer(gl.FRAMEBUFFER, fbo); gl.viewport(0, 0, fboW, fboH);
   gl.disable(gl.BLEND);
   gl.useProgram(pSea); commonUniforms(pSea, t);
-  gl.uniform2f(pSea.u.uFbo, fboW, fboH); gl.uniform1f(pSea.u.uPx, fboW / W); gl.uniform1f(pSea.u.uCalm, 0.62);
+  gl.uniform2f(pSea.u.uFbo, fboW, fboH); gl.uniform1f(pSea.u.uPx, fboW / W); gl.uniform1f(pSea.u.uCalm, 0.38); gl.uniform1f(pSea.u.uRain, RAIN); gl.uniform1i(pSea.u.uRainL, LOW ? 1 : 3);
   gl.bindVertexArray(vaoFull); gl.drawArrays(gl.TRIANGLES, 0, 3);
   // 2) 화면으로 복사
   gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, glc.width, glc.height);
   gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, fboTex);
   gl.useProgram(pBlit); gl.uniform1i(pBlit.u.uScene, 0); gl.uniform2f(pBlit.u.uCanvas, glc.width, glc.height);
+  gl.uniform1f(pBlit.u.uY0d, y0 * DPR); gl.uniform1f(pBlit.u.uFHd, f * hc * DPR); gl.uniform1f(pBlit.u.uDpr, DPR); gl.uniform1i(pBlit.u.uTaps, LOW ? 6 : 16);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
   // 3) 물막·물방울 (premultiplied alpha)
   gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
@@ -1105,8 +1202,49 @@ function drawGL(t) {
   if (nN) gl.drawArrays(gl.TRIANGLES, CAP_C + CAP_F, nN);
   gl.useProgram(pSph); gl.bindVertexArray(vaoSph);
   drawSpheresRange(0, nReal);
+  // 빗줄기(배경 비 + 음표 방울의 낙하 궤적)
+  const nK = fillStreaks();
+  if (nK) {
+    gl.useProgram(pStk); commonUniforms(pStk, t); gl.uniform1i(pStk.u.uScene, 0);
+    gl.bindVertexArray(vaoStk); gl.bindBuffer(gl.ARRAY_BUFFER, stkBuf);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, KB, 0, nK * 8);
+    gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, nK);
+  }
+  gl.useProgram(pGrain); gl.uniform1f(pGrain.u.uTime, t);
+  gl.bindVertexArray(vaoFull); gl.drawArrays(gl.TRIANGLES, 0, 3);
   gl.disable(gl.BLEND);
   gl.bindVertexArray(null);
+}
+// 배경 빗줄기: 화면 전체 깊이에 흩어진 빗방울. 약 6.5m/s로 떨어지고, 셔터(약 1/220초) 동안 움직인 만큼 늘어나 보임
+const KCAP = 1600, KB = new Float32Array(KCAP * 8), rainS = [];
+const STK_N = () => LOW ? 220 : 600;
+function newStreak(s, init) {
+  const Z = 0.9 + Math.pow(Math.random(), 1.5) * 16;
+  s.Z = Z; s.X = (rand(-0.05, 1.05) * W - cx) * Z / f;
+  const top = hc + (y0 + 30) * Z / f;
+  s.Y = init ? rand(0, top) : top + rand(0, 0.4 * top);
+  s.v = rand(30, 38);
+}
+function updateStreaks(dt) {
+  const n = STK_N();
+  while (rainS.length < n) { const s = {}; newStreak(s, true); rainS.push(s); }
+  if (rainS.length > n) rainS.length = n;
+  for (const s of rainS) { s.Y -= s.v * dt; s.X += windX * 0.25 * s.v * dt; if (s.Y < 0) newStreak(s, false); }
+}
+function fillStreaks() {
+  let k = 0;
+  const put = (x, y, z, len, w, a, sl) => { if (k >= KCAP) return; const o = k * 8; KB[o] = x; KB[o + 1] = y; KB[o + 2] = z; KB[o + 3] = len; KB[o + 4] = w; KB[o + 5] = a; KB[o + 6] = sl; KB[o + 7] = 0; k++; };
+  for (const s of rainS) {
+    const w = clamp(f * 0.006 / s.Z, 0.6, 5);
+    put(s.X, s.Y, s.Z, s.v * 0.008, w, 0.38 * clamp(1.3 / w, 0.22, 1) * (1 - sstep(10, 17, s.Z) * 0.6), windX * 0.25);
+  }
+  for (const d of drops) {
+    const u = (simT - (d.tImp - d.T)) / d.T; if (u < 0 || u >= 1) continue;
+    const Y = d.Y0 * (1 - u * u), sp = 2 * d.Y0 * u / d.T;
+    const hit = d.kind === 'hit';
+    put(d.X + d.slant * Y, Y, d.Z, clamp(sp * 0.03, 0.02, 0.3), Math.max(hit ? 1.4 : 0.8, f * (hit ? 0.009 : 0.006) * (0.6 + d.sz * 0.6) / d.Z), hit ? 0.45 : 0.3, d.slant);
+  }
+  return k;
 }
 function drawSpheresRange(first, count) {
   if (count <= 0) return;
@@ -1144,38 +1282,10 @@ function drawKeys() {
   }
   g.globalCompositeOperation = 'source-over';
 }
-// 2D 오버레이: 낙하 궤적(모션 블러), 착수 순간의 빛, 건반
+// 2D 오버레이: 건반만 (빗줄기·물방울은 모두 WebGL에서 실제 조명으로 그림)
 function render2D() {
   g.setTransform(DPR, 0, 0, DPR, 0, 0);
   g.clearRect(0, 0, W, H);
-  g.lineCap = 'round';
-  for (const d of drops) {
-    const u = (simT - (d.tImp - d.T)) / d.T; if (u < 0 || u >= 1) continue;
-    const Z = d.Z, Y = d.Y0 * (1 - u * u);
-    const u2 = Math.max(0, u - (d.kind === 'amb' ? 0.06 : 0.05) / d.T), Yt = d.Y0 * (1 - u2 * u2);
-    const sx = pjx(d.X + d.slant * Y, Z), sy = pjy(Y, Z), tx = pjx(d.X + d.slant * Yt, Z), ty = pjy(Yt, Z);
-    if (sy < -30) continue;
-    const rp = Math.max(0.8, f * 0.011 * (0.6 + d.sz * 0.6) / Z), al = d.kind === 'amb' ? 0.35 : 0.6;
-    const tg = g.createLinearGradient(tx, ty, sx, sy);
-    tg.addColorStop(0, `hsla(${d.hue | 0},80%,82%,0)`); tg.addColorStop(1, `hsla(${d.hue | 0},80%,85%,${al.toFixed(2)})`);
-    g.strokeStyle = tg; g.lineWidth = rp * 1.1; g.beginPath(); g.moveTo(tx, ty); g.lineTo(sx, sy - rp); g.stroke();
-    if (d.kind !== 'amb') {
-      g.globalCompositeOperation = 'lighter';
-      const R = rp * 3.2, gr = g.createRadialGradient(sx, sy, 0, sx, sy, R);
-      gr.addColorStop(0, `hsla(${d.hue | 0},95%,75%,0.22)`); gr.addColorStop(1, `hsla(${d.hue | 0},95%,70%,0)`);
-      g.fillStyle = gr; g.fillRect(sx - R, sy - R, R * 2, R * 2);
-      g.globalCompositeOperation = 'source-over';
-    }
-  }
-  g.globalCompositeOperation = 'lighter';
-  for (const fl of flashes) {
-    const k = fl.t / 0.16, sx = pjx(fl.X, fl.Z), sy = pjy(0.005, fl.Z), R = f * (0.03 + 0.04 * fl.e) / fl.Z * (1 + k * 2);
-    const gr = g.createRadialGradient(sx, sy, 0, sx, sy, R);
-    gr.addColorStop(0, `hsla(${fl.hue | 0},90%,80%,${(0.35 * (1 - k)).toFixed(3)})`); gr.addColorStop(1, `hsla(${fl.hue | 0},90%,70%,0)`);
-    g.save(); g.translate(sx, sy); g.scale(1, 0.45); g.translate(-sx, -sy);
-    g.fillStyle = gr; g.fillRect(sx - R, sy - R, R * 2, R * 2); g.restore();
-  }
-  g.globalCompositeOperation = 'source-over';
   if (showKeys) drawKeys();
 }
 
@@ -1187,10 +1297,12 @@ const T0 = performance.now();
 function step(dt) {
   simT += dt;
   if (!manual) analyze(dt);
-  ambAcc += (started ? 1.6 : 3) * dt;
+  ambAcc += (LOW ? 5 : 9) * dt;
   while (ambAcc >= 1) { ambAcc -= 1; spawnAmb(); }
   for (let i = drops.length - 1; i >= 0; i--) { if (simT >= drops[i].tImp) { const d = drops[i]; drops.splice(i, 1); impact(d); } }
-  updateFx(dt);
+  fxT += dt * TSCALE;
+  updateFx(dt * TSCALE);
+  updateStreaks(dt);
 }
 function draw() {
   if (glReady) drawGL(simT);
