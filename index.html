@@ -1,0 +1,1236 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Rain Keys · 빗방울 건반</title>
+<meta name="description" content="기기에서 나오는 소리의 음높이와 리듬대로 빗방울이 떨어지는 바다. 물리 기반 스플래시와 파문.">
+<meta name="theme-color" content="#070a18">
+<style>
+  :root{color-scheme:dark}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;background:#070a18;overflow:hidden;font-family:system-ui,-apple-system,"Pretendard","Apple SD Gothic Neo","Noto Sans KR",sans-serif;color:#cfe3ff}
+  canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
+  #c{pointer-events:none}
+  #panel{position:fixed;left:50%;bottom:max(14px,env(safe-area-inset-bottom));transform:translateX(-50%);max-width:96vw;
+    display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center;justify-content:center;
+    padding:10px 16px;border-radius:18px;background:rgba(10,14,34,.6);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+    border:1px solid rgba(160,190,255,.16);font-size:13px;transition:opacity .5s;z-index:5}
+  #panel.idle{opacity:0}
+  #panel:hover,#panel:focus-within{opacity:1}
+  #panel .ctl{display:flex;flex-direction:column;gap:2px}
+  #panel label{display:flex;align-items:center;gap:7px;white-space:nowrap}
+  #panel small{font-size:11px;opacity:.6;white-space:nowrap}
+  #panel input[type=range]{width:100px;accent-color:#7fb4ff}
+  #panel button{background:rgba(120,160,255,.14);color:#e4eeff;border:1px solid rgba(160,190,255,.25);border-radius:10px;padding:6px 10px;font:inherit;cursor:pointer;min-width:38px}
+  #panel button:hover{background:rgba(120,160,255,.28)}
+  #panel span.v{opacity:.65;min-width:42px;display:inline-block}
+  #overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:18px;text-align:center;
+    background:radial-gradient(ellipse at 50% 40%,rgba(14,20,50,.55),rgba(4,6,16,.88));z-index:10;padding:24px;transition:opacity .8s}
+  #overlay.hide{opacity:0;pointer-events:none}
+  #overlay h1{margin:0;font-size:clamp(34px,7vw,64px);font-weight:200;letter-spacing:.14em;color:#eaf3ff;text-shadow:0 0 30px rgba(120,170,255,.5)}
+  #overlay p{margin:0;max-width:32em;line-height:1.7;opacity:.78;font-size:15px}
+  .big{font:inherit;font-size:17px;color:#fff;border:1px solid rgba(170,200,255,.5);background:rgba(110,150,255,.2);padding:14px 34px;border-radius:999px;cursor:pointer;letter-spacing:.06em;box-shadow:0 0 40px rgba(110,150,255,.25)}
+  .big:hover{background:rgba(110,150,255,.38)}
+  .big.alt{background:rgba(255,255,255,.06)}
+  .btns{display:flex;gap:14px;flex-wrap:wrap;justify-content:center}
+  #overlay .note{font-size:12.5px;opacity:.55;max-width:38em}
+  #tap{position:fixed;left:50%;top:42%;transform:translate(-50%,-50%);z-index:9;padding:14px 26px;border-radius:999px;
+    background:rgba(10,14,34,.62);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid rgba(170,200,255,.35);
+    color:#eaf3ff;font-size:15px;letter-spacing:.04em;pointer-events:none;animation:pulse 2.2s ease-in-out infinite}
+  #tap[hidden]{display:none}
+  @keyframes pulse{50%{opacity:.55}}
+  .msg{min-height:1.2em;color:#ffb4c4;font-size:13px;max-width:34em}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<canvas id="c"></canvas>
+
+<div id="panel" class="idle">
+  <button id="src" title="소리 입력 다시 선택">🔊 입력</button>
+  <div class="ctl">
+    <label>감도 <input id="sens" type="range" min="0" max="1" step="0.01" value="0.5"></label>
+    <small>높을수록 여린 음까지 빗방울이 돼요 (잡음도 늘어요)</small>
+  </div>
+  <div class="ctl">
+    <label>싱크 <input id="fall" type="range" min="0.1" max="0.8" step="0.01" value="0.3"><span class="v" id="fallv"></span></label>
+    <small>방울이 물에 닿는 순간을 소리에 맞춰요 · 화면이 늦으면 ←, 블루투스면 →</small>
+  </div>
+  <label><input id="keys" type="checkbox" checked> 건반</label>
+  <label title="입자 수·해상도를 낮춰 휴대폰에서 부드럽게"><input id="low" type="checkbox"> 저사양</label>
+  <button id="fs" title="전체화면">⛶</button>
+</div>
+
+<div id="overlay">
+  <h1>RAIN KEYS</h1>
+  <p>기기에서 나오는 소리가 그대로 빗방울이 됩니다.<br>피아노 음의 높낮이는 가로 위치(건반)로, 리듬은 떨어지는 타이밍으로 따라가요.<br>낮은 음은 크고 무거운 방울, 높은 음은 작고 가벼운 방울이 됩니다.</p>
+  <div class="btns">
+    <button id="btnSys" class="big">💻 기기 소리 연결</button>
+    <button id="btnMic" class="big alt">🎤 마이크로 듣기</button>
+  </div>
+  <p class="note" id="sysnote">PC(Chrome·Edge)에서 공유 창이 뜨면 <b>'전체 화면'(Windows) 또는 '탭'</b>을 고르고 <b>오디오 공유</b>를 체크하세요.<br>Windows는 전체 화면 선택 시 기기의 모든 소리가, macOS는 탭 소리만 잡혀요. 소리는 그대로 들리고 이 페이지는 분석만 합니다.</p>
+  <div id="msg" class="msg"></div>
+</div>
+<div id="tap" hidden>🎤 화면을 한 번 눌러 주세요 · 소리 분석을 시작해요</div>
+
+<script>
+(() => {
+'use strict';
+const TAU = Math.PI * 2;
+const rand = (a, b) => a + Math.random() * (b - a);
+const clamp = (x, a, b) => x < a ? a : x > b ? b : x;
+const lerp = (a, b, t) => a + (b - a) * t;
+const sstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+const $ = id => document.getElementById(id);
+
+const glc = $('gl'), cv = $('c'), g = cv.getContext('2d');
+const overlay = $('overlay'), msg = $('msg');
+function showMsg(t) { msg.textContent = t || ''; }
+
+let LOW = window.matchMedia('(pointer:coarse)').matches;
+$('low').checked = LOW;
+const G = 5.0;                       // 슬로모션 느낌의 중력(월드 단위/s²)
+
+/* ======================================================================
+   카메라: 높이 hc의 바늘구멍 카메라가 +Z를 봄.  화면 x = cx + f·X/Z,  y = y0 + f·(hc−Y)/Z
+   ====================================================================== */
+let W = 0, H = 0, DPR = 1, f = 1, y0 = 0, hc = 1, cx = 0;
+const pjx = (X, Z) => cx + f * X / Z;
+const pjy = (Y, Z) => y0 + f * (hc - Y) / Z;
+
+/* ======================================================================
+   셰이더 공통부: 하늘(달·네온), 환경 반사, 해석적 파문(분산 파동 열차)
+   ====================================================================== */
+const EVMAX = 64;
+const COMMON = `#version 300 es
+precision highp float;
+precision highp int;
+precision highp sampler2D;
+uniform vec2 uView;          // CSS px
+uniform float uY0, uF, uHc, uCx, uTime;
+uniform vec4 uEvA[${EVMAX}]; // X, Z, 나이(s), 진폭
+uniform vec4 uEvB[${EVMAX}]; // 크기
+uniform int uEvN;
+const vec3 LD0 = vec3(-0.2648, 0.1891, 0.9456);
+const vec3 LD1 = vec3( 0.3711, 0.0417, 0.9277);
+const vec3 LD2 = vec3(-0.5267, 0.0297, 0.8496);
+const vec3 DEEP = vec3(0.016,0.045,0.088);
+float hash21(vec2 p){ p=fract(p*vec2(123.34,456.21)); p+=dot(p,p+45.32); return fract(p.x*p.y); }
+vec3 hueRGB(float h){ return clamp(abs(mod(h/60.0+vec3(0.0,4.0,2.0),6.0)-3.0)-1.0,0.0,1.0); }
+vec3 decor(vec2 pr){
+  vec3 c=vec3(0.0);
+  if(pr.y < uY0-24.0){
+    vec2 gg=pr/13.0; vec2 id=floor(gg); vec2 fr=fract(gg)-0.5;
+    float h=hash21(id);
+    if(h>0.9){
+      vec2 off=vec2(hash21(id+7.1),hash21(id+3.3))-0.5;
+      float dd=length(fr-off*0.6);
+      float tw=0.65+0.35*sin(uTime*(1.0+h*3.0)+h*40.0);
+      c+=vec3(0.82,0.88,1.0)*smoothstep(0.14,0.0,dd)*(h-0.9)*9.0*tw;
+    }
+  }
+  float by=uY0-pr.y;
+  if(by>0.0 && by<34.0){
+    vec2 gg=vec2(pr.x/18.0, by/17.0); vec2 id=floor(gg); vec2 fr=fract(gg)-0.5;
+    float h=hash21(id+11.7);
+    if(h>0.42){
+      vec2 off=vec2(hash21(id+1.3),hash21(id+5.9))-0.5;
+      float rad=0.14+0.26*hash21(id+9.1);
+      float dd=length(fr-off*0.5);
+      float q=hash21(id+4.4);
+      vec3 col = q<0.5?vec3(1.0,0.47,0.67): q<0.72?vec3(1.0,0.75,0.4): q<0.9?vec3(0.47,0.78,1.0):vec3(0.7,0.55,1.0);
+      c+=col*smoothstep(rad,rad*0.45,dd)*(0.18+0.4*hash21(id+2.2));
+    }
+  }
+  return c;
+}
+vec3 sky(vec3 d){
+  float e=clamp(d.y,0.0,1.0);
+  vec3 c=mix(vec3(0.44,0.30,0.58), vec3(0.29,0.22,0.49), smoothstep(0.0,0.05,e));
+  c=mix(c, vec3(0.125,0.14,0.34), smoothstep(0.05,0.2,e));
+  c=mix(c, vec3(0.05,0.067,0.18), smoothstep(0.2,0.55,e));
+  c=mix(c, vec3(0.02,0.027,0.078), smoothstep(0.55,1.0,e));
+  float m=max(dot(d,LD0),0.0);
+  c+=vec3(0.80,0.87,1.0)*(0.30*pow(m,40.0)+0.25*pow(m,300.0)+1.5*smoothstep(0.99995,0.999968,m));
+  float n=max(dot(d,LD1),0.0);
+  c+=vec3(1.0,0.33,0.64)*(0.42*pow(n,60.0)+0.5*pow(n,500.0));
+  float a=max(dot(d,LD2),0.0);
+  c+=vec3(1.0,0.70,0.28)*(0.38*pow(a,60.0)+0.4*pow(a,500.0));
+  if(d.z>0.05){ c+=decor(vec2(uCx+uF*d.x/d.z, uY0-uF*d.y/d.z)); }
+  return c;
+}
+// 물방울·물막이 보는 주변: 위는 하늘, 아래는 하늘을 비추는 수면
+vec3 env(vec3 d){
+  if(d.y>=0.0) return sky(d);
+  vec3 m=vec3(d.x,-d.y,d.z);
+  float k=clamp(-d.y*5.0,0.0,1.0);
+  return mix(sky(m)*0.6, DEEP*1.4, k);
+}
+// 해석적 파문: 사건마다 파장이 다른 3개 성분이 서로 다른 속도로 퍼짐(짧은 모세관 파문이 앞서 나감)
+// 반환값 (높이, ∂h/∂x, ∂h/∂z)
+vec3 ripple(vec2 xz, float fp){
+  vec3 acc=vec3(0.0);
+  for(int i=0;i<${EVMAX};i++){
+    if(i>=uEvN) break;
+    vec4 a=uEvA[i]; float t=a.z;
+    if(t<=0.0) continue;
+    float s=uEvB[i].x;
+    vec2 d=xz-a.xy; float r=length(d);
+    float lam=0.05*s, c=0.30*sqrt(s);
+    if(r>c*2.4*t+lam*4.0) continue;
+    float A=a.w*exp(-t/(0.5+0.7*s))/sqrt(1.0+r/(lam*1.5));
+    float h=0.0, dh=0.0;
+    for(int j=0;j<3;j++){
+      float m = j==0?1.0:(j==1?0.6:0.36);
+      float am= j==0?1.0:(j==1?0.55:0.3);
+      float L=lam*m, k=6.2831853/L, cp=c/sqrt(m);
+      float rc=cp*1.35*t, w=L*1.1+0.28*rc;
+      float q=(r-rc)/w, en=exp(-q*q)*smoothstep(1.2*fp,3.5*fp,L);
+      float ph=k*(r-cp*t)+float(j)*1.3;
+      h+=am*en*cos(ph); dh+=-am*en*k*sin(ph);
+    }
+    float cen=exp(-r*r/(lam*lam*0.3))*exp(-t*6.0);           // 착수점 중심의 출렁임
+    h+=cen*cos(t*28.0)*0.8;
+    acc.x+=A*h; acc.yz+=A*dh*d/max(r,1e-4);
+  }
+  return acc;
+}
+`;
+
+const VS_FULL = `#version 300 es
+void main(){ vec2 p=vec2(float((gl_VertexID<<1)&2), float(gl_VertexID&2)); gl_Position=vec4(p*2.0-1.0,0.0,1.0); }`;
+
+const FS_SEA = COMMON + `
+uniform vec2 uFbo; uniform float uPx, uCalm;
+out vec4 o;
+const float WL[8]=float[8](11.0,6.3,3.7,2.2,1.3,0.75,0.42,0.24);
+const float WA[8]=float[8](0.20,0.11,0.065,0.036,0.021,0.011,0.006,0.0034);
+const float WD[8]=float[8](0.30,-0.50,1.00,-1.30,0.70,-0.20,1.70,-0.90);
+const float WP[8]=float[8](0.0,1.7,3.1,4.4,0.9,2.6,5.2,3.8);
+void main(){
+  vec2 p=vec2(gl_FragCoord.x, uFbo.y-gl_FragCoord.y)/uPx;
+  float dy=p.y-uY0;
+  vec3 col;
+  if(dy<=0.0){
+    col=sky(normalize(vec3(p.x-uCx,-dy,uF)));
+  } else {
+    float Z=min(uF*uHc/max(dy,0.02),3000.0);
+    float X=(p.x-uCx)*Z/uF;
+    vec2 xz=vec2(X,Z);
+    float fp=Z*Z/(uF*uHc);
+    float calm=uCalm*(0.82+0.18*sin(uTime*0.21));
+    float hgt=0.0; vec2 sl=vec2(0.0);
+    for(int i=0;i<8;i++){
+      float k=6.2831853/WL[i];
+      vec2 dir=vec2(sin(WD[i]),cos(WD[i]));
+      float vis=smoothstep(1.4*fp,4.2*fp,WL[i]);
+      float arg=k*dot(dir,xz)-sqrt(9.81*k)*0.75*uTime+WP[i];
+      float amp=WA[i]*calm*vis;
+      hgt+=amp*sin(arg);
+      sl+=amp*k*cos(arg)*dir;
+    }
+    vec3 rp=ripple(xz,fp);
+    sl+=rp.yz;
+    vec3 v=normalize(vec3(X,-uHc,Z));
+    vec3 n=normalize(vec3(-sl.x,1.0,-sl.y));
+    vec3 r=reflect(v,n); r.y=abs(r.y);
+    float cosT=clamp(dot(-v,n),0.0,1.0);
+    float F=min(0.04+0.96*pow(1.0-cosT,5.0)*1.5,0.9);
+    vec3 refl=sky(normalize(r));
+    vec3 deep=DEEP+vec3(0.018,0.060,0.075)*smoothstep(-0.05,0.25,hgt*1.6);
+    col=mix(deep,refl,F);
+    float emb=clamp(0.26*rp.y-0.95*rp.z,-1.0,1.0);                 // 빛을 향한 쪽은 밝고 반대쪽은 어둡게(엠보싱)
+    col+=vec3(0.55,0.62,0.9)*max(emb,0.0)*0.22 - vec3(0.03,0.04,0.07)*max(-emb,0.0)*1.2;
+    float hz=1.0-exp(-Z*0.0035);
+    col=mix(col,vec3(0.24,0.18,0.38),hz*0.45);
+  }
+  col+=vec3(0.85,0.76,1.0)*0.30*exp(-dy*dy/2.4);
+  col+=(hash21(gl_FragCoord.xy+uTime)-0.5)/255.0;
+  o=vec4(clamp(col,0.0,1.0),1.0);
+}`;
+
+const FS_BLIT = `#version 300 es
+precision highp float;
+uniform sampler2D uScene; uniform vec2 uCanvas;
+out vec4 o;
+void main(){
+  vec2 uv=gl_FragCoord.xy/uCanvas;
+  vec3 c=texture(uScene,uv).rgb;
+  vec2 q=(uv-vec2(0.5,0.45))*vec2(1.0,1.15);
+  c*=1.0-0.5*smoothstep(0.35,0.85,length(q));
+  o=vec4(c,1.0);
+}`;
+
+// 물막(크라운·제트)과 분화구 수면: 실제 3D 삼각형. 프레넬 반사 + 배경 굴절 + 거울상
+const VS_MESH = COMMON + `
+in vec3 aP; in vec3 aN; in vec4 aX;
+uniform float uMirror;
+out vec3 vP; out vec3 vN; out vec4 vX;
+void main(){
+  vec3 P=aP, N=aN;
+  if(uMirror>0.5){
+    vec3 rp=ripple(P.xz,0.0001);
+    float y=max(P.y,0.0);
+    P.y=-y; N.y=-N.y;
+    P.xz+=clamp(rp.yz,-0.5,0.5)*min(y,0.12)*1.5;                  // 파문에 따라 일렁이는 반사
+  }
+  vP=P; vN=N; vX=aX;
+  float Z=P.z;                                                     // z=Z-0.6 → Z<0.3 인 부분은 근평면에서 잘림
+  gl_Position=vec4((uCx*Z+uF*P.x)/(uView.x*0.5)-Z, Z-(uY0*Z+uF*(uHc-P.y))/(uView.y*0.5), Z-0.6, Z);
+}`;
+const FS_MESH = COMMON + `
+in vec3 vP; in vec3 vN; in vec4 vX;
+uniform sampler2D uScene; uniform vec2 uCanvas; uniform float uMirror;
+out vec4 o;
+void main(){
+  vec3 cam=vec3(0.0,uHc,0.0);
+  vec3 v=normalize(vP-cam);
+  vec3 N=normalize(vN);
+  if(dot(N,v)>0.0) N=-N;
+  float cosT=clamp(-dot(v,N),0.0,1.0);
+  float F=0.02+0.98*pow(1.0-cosT,5.0);
+  vec3 refl=env(reflect(v,N));
+  vec2 uv=gl_FragCoord.xy/uCanvas;
+  float th=vX.x, cover=vX.y;
+  vec3 hc3=hueRGB(vX.z);
+  vec3 col;
+  if(vX.w<0.5){
+    float Ff=mix(2.0*F/(1.0+F),F,th);                              // 얇은 막: 앞·뒤 두 면 반사
+    vec2 off=N.xy*(0.004+0.016*th)*(4.0/max(vP.z,1.0));
+    vec3 tr=texture(uScene,clamp(uv-off,0.001,0.999)).rgb;
+    tr*=mix(vec3(1.0),vec3(0.72,0.88,1.0),th*0.7);
+    tr+=vec3(0.03,0.045,0.07)*th;
+    col=refl*Ff*1.25+tr*(1.0-Ff)+hc3*0.05*th;
+    float sp=pow(max(dot(reflect(v,N),normalize(vec3(-0.35,0.55,-0.75))),0.0),40.0);
+    col+=vec3(0.9,0.95,1.0)*sp*0.5*(0.4+th);
+    col+=mix(vec3(0.75,0.85,1.0),hc3,0.3)*smoothstep(0.75,1.0,th)*0.22;   // 두꺼운 림이 빛을 모음
+  } else {
+    // 분화구: 바다 이미지를 경사만큼 밀어 일그러뜨리고(반사가 휨), 깊은 곳은 어둡게, 솟은 가장자리는 빛남
+    vec2 off=vec2(-N.x,N.z)*0.05*(4.0/max(vP.z,1.0));
+    vec3 sc=texture(uScene,clamp(uv+off,0.001,0.999)).rgb;
+    col=sc*(1.0-0.55*th)+DEEP*0.4*th;
+    float emb=clamp(dot(N,normalize(vec3(-0.26,0.35,0.9))),-1.0,1.0);
+    col+=vec3(0.55,0.62,0.95)*max(emb-0.4,0.0)*0.6;
+    col=mix(col,refl,F*0.6);
+  }
+  if(uMirror>0.5){ cover*=exp(vP.y*14.0); o=vec4(col*0.24*cover,cover*0.1); return; }   // 수면 반사: 거의 더하기만(어두운 덩어리 방지)
+  o=vec4(col*cover,cover);
+}`;
+
+// 물방울·기포·물보라: 구 임포스터(픽셀마다 구 법선) — 유리구슬처럼 굴절(상 뒤집힘), 굴절 링, 집광, 하이라이트
+const VS_SPH = COMMON + `
+in vec2 aQ; in vec4 iA; in vec4 iB;
+out vec2 vPx; flat out vec2 vS; flat out vec3 vC; flat out float vR, vRad; flat out vec4 vB;
+void main(){
+  vec3 C=iA.xyz; if(iB.w>0.5) C.y=-C.y;
+  float Z=max(C.z,0.1);
+  vec2 s=vec2(uCx+uF*C.x/Z, uY0+uF*(uHc-C.y)/Z);
+  float rad=uF*iA.w/Z;
+  float rq=max(rad,0.6)+1.5;
+  vec2 p=s+aQ*rq;
+  vPx=p; vS=s; vC=C; vR=iA.w; vRad=max(rad,0.6); vB=iB;
+  gl_Position=vec4(p.x/uView.x*2.0-1.0, 1.0-p.y/uView.y*2.0, 0.0, 1.0);
+}`;
+const FS_SPH = COMMON + `
+in vec2 vPx; flat in vec2 vS; flat in vec3 vC; flat in float vR, vRad; flat in vec4 vB;
+uniform sampler2D uScene;
+out vec4 o;
+void main(){
+  vec2 d=(vPx-vS)/vRad; float q=length(d);
+  float aa=1.0/vRad;
+  float cover=1.0-smoothstep(1.0-aa,1.0+aa,q);
+  if(cover<=0.0) discard;
+  float kind=vB.z, mir=vB.w;
+  vec3 hc3=hueRGB(vB.x);
+  if(kind>1.5){                                                    // 물보라(미스트)
+    float s=max(0.0,1.0-q*q); s*=s;
+    vec3 c=mix(vec3(0.86,0.9,1.0),hc3,0.25)*0.9;
+    float a=s*vB.y*(mir>0.5?0.35:1.0);
+    o=vec4(c*a,a); return;
+  }
+  vec2 n2=q>1.0?d/q:d; float nz=sqrt(max(0.0,1.0-dot(n2,n2)));
+  vec3 N=normalize(vec3(n2.x,-n2.y,-nz));
+  vec3 P=vC+N*vR;
+  if(vRad>2.0){                                                    // 수면 아래 부분은 보이지 않음(메니스커스)
+    float cut=mir>0.5?-P.y:P.y;
+    cover*=smoothstep(-0.25*vR,0.05*vR,cut);
+    if(cover<=0.0) discard;
+  }
+  vec3 cam=vec3(0.0,uHc,0.0), v=normalize(P-cam);
+  float cosT=clamp(-dot(v,N),0.0,1.0);
+  float F=0.02+0.98*pow(1.0-cosT,5.0);
+  vec3 R=reflect(v,N);
+  vec3 refl=env(R);
+  vec2 uvC=vec2(vS.x,uView.y-vS.y)/uView, uvP=vec2(vPx.x,uView.y-vPx.y)/uView;
+  vec3 col;
+  float sp=pow(max(dot(R,normalize(vec3(-0.35,0.55,-0.75))),0.0),90.0);
+  if(kind<0.5){
+    vec3 tr=texture(uScene,clamp(uvC-(uvP-uvC)*2.6,0.001,0.999)).rgb;   // 볼록렌즈: 뒤집힌 배경
+    tr=tr*1.25+vec3(0.025,0.035,0.06);
+    tr*=1.0-0.88*smoothstep(0.52,0.96,q);                                 // 가장자리 전반사 → 어두운 굴절 링
+    float ca=pow(max(dot(N,normalize(vec3(0.25,-0.8,-0.45))),0.0),5.0);  // 아래쪽 집광
+    col=refl*F*1.4+tr*(1.0-F)+mix(vec3(1.0),hc3,0.45)*ca*0.55+vec3(1.0)*sp*1.6;
+    col=mix(col,mix(vec3(0.85,0.92,1.0),hc3,0.3),smoothstep(2.6,0.9,vRad)*0.75);  // 너무 작으면 빛나는 점으로
+  } else {                                                         // 기포: 얇은 막의 무지개 간섭색
+    float F2=2.0*F/(1.0+F);
+    vec3 ir=0.5+0.5*cos(6.2832*(cosT*1.7+vB.y*0.0+vec3(0.0,0.33,0.67)+P.x*8.0));
+    vec3 tr=texture(uScene,uvP).rgb;
+    col=refl*F2*1.5*mix(vec3(1.0),ir*1.5,0.6)+tr*(1.0-F2)+vec3(1.0)*sp*1.3+vec3(0.6,0.7,0.9)*smoothstep(0.8,1.0,q)*0.18;
+  }
+  float a=cover*vB.y;
+  if(mir>0.5){ a*=exp(vC.y*14.0); o=vec4(col*0.3*a,a*0.12); return; }
+  o=vec4(col*a,a);
+}`;
+
+/* ======================================================================
+   WebGL 초기화
+   ====================================================================== */
+const gl = glc.getContext('webgl2', { antialias: true, alpha: false, premultipliedAlpha: false, powerPreference: 'high-performance' });
+let glReady = false, pSea, pBlit, pMesh, pSph, fbo = null, fboTex = null, fboW = 0, fboH = 0;
+let meshBuf, sphBuf, quadBuf, vaoMesh, vaoSph, vaoFull;
+function compile(type, src) {
+  const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) { console.error(gl.getShaderInfoLog(s)); throw new Error('shader compile'); }
+  return s;
+}
+function program(vs, fs) {
+  const p = gl.createProgram();
+  gl.attachShader(p, compile(gl.VERTEX_SHADER, vs)); gl.attachShader(p, compile(gl.FRAGMENT_SHADER, fs));
+  gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) { console.error(gl.getProgramInfoLog(p)); throw new Error('link'); }
+  p.u = {};
+  const n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++) { const nm = gl.getActiveUniform(p, i).name.replace(/\[0\]$/, ''); p.u[nm] = gl.getUniformLocation(p, nm); }
+  return p;
+}
+// 정점: 위치3 법선3 보조4(두께, 불투명도, 색상, 모드)
+const CAP_C = 60000, CAP_F = 90000, CAP_N = 90000;
+const MC = new Float32Array(CAP_C * 10), MF = new Float32Array(CAP_F * 10), MN = new Float32Array(CAP_N * 10);
+let nC = 0, nF = 0, nN = 0;
+const SCAP = 3000, SB = new Float32Array(SCAP * 8);
+let nS = 0;
+function initGL() {
+  if (!gl) throw new Error('webgl2');
+  pSea = program(VS_FULL, FS_SEA); pBlit = program(VS_FULL, FS_BLIT);
+  pMesh = program(VS_MESH, FS_MESH); pSph = program(VS_SPH, FS_SPH);
+  vaoFull = gl.createVertexArray();
+  vaoMesh = gl.createVertexArray(); gl.bindVertexArray(vaoMesh);
+  meshBuf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, meshBuf);
+  gl.bufferData(gl.ARRAY_BUFFER, (CAP_C + CAP_F + CAP_N) * 40, gl.DYNAMIC_DRAW);
+  const lm = n => gl.getAttribLocation(pMesh, n);
+  gl.enableVertexAttribArray(lm('aP')); gl.vertexAttribPointer(lm('aP'), 3, gl.FLOAT, false, 40, 0);
+  gl.enableVertexAttribArray(lm('aN')); gl.vertexAttribPointer(lm('aN'), 3, gl.FLOAT, false, 40, 12);
+  gl.enableVertexAttribArray(lm('aX')); gl.vertexAttribPointer(lm('aX'), 4, gl.FLOAT, false, 40, 24);
+  vaoSph = gl.createVertexArray(); gl.bindVertexArray(vaoSph);
+  quadBuf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]), gl.STATIC_DRAW);
+  const ls = n => gl.getAttribLocation(pSph, n);
+  gl.enableVertexAttribArray(ls('aQ')); gl.vertexAttribPointer(ls('aQ'), 2, gl.FLOAT, false, 8, 0);
+  sphBuf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, sphBuf);
+  gl.bufferData(gl.ARRAY_BUFFER, SCAP * 32, gl.DYNAMIC_DRAW);
+  gl.enableVertexAttribArray(ls('iA')); gl.vertexAttribPointer(ls('iA'), 4, gl.FLOAT, false, 32, 0); gl.vertexAttribDivisor(ls('iA'), 1);
+  gl.enableVertexAttribArray(ls('iB')); gl.vertexAttribPointer(ls('iB'), 4, gl.FLOAT, false, 32, 16); gl.vertexAttribDivisor(ls('iB'), 1);
+  gl.bindVertexArray(null);
+  glReady = true;
+}
+function makeFbo() {
+  const sc = LOW ? 0.6 : 1;
+  fboW = Math.max(2, Math.round(glc.width * sc)); fboH = Math.max(2, Math.round(glc.height * sc));
+  if (fboTex) gl.deleteTexture(fboTex);
+  if (fbo) gl.deleteFramebuffer(fbo);
+  fboTex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, fboTex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, fboW, fboH, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  fbo = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, fboTex, 0);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+}
+
+function resize() {
+  W = window.innerWidth; H = window.innerHeight; DPR = Math.min(window.devicePixelRatio || 1, LOW ? 1 : 2);
+  glc.width = cv.width = Math.round(W * DPR); glc.height = cv.height = Math.round(H * DPR);
+  y0 = Math.round(H * 0.34); f = Math.max(W * 0.9, H * 0.85); cx = W / 2;
+  hc = 2.2 * (H - y0) / f;
+  if (glReady) makeFbo();
+}
+window.addEventListener('resize', resize);
+
+/* ======================================================================
+   상태
+   ====================================================================== */
+const drops = [], parts = [], crowns = [], jets = [], craters = [], bubbles = [], floaters = [], flashes = [], timers = [], EV = [];
+const keyGlow = new Float32Array(128);
+let started = false, showKeys = true;
+let fallT = 0.3, sens = 0.5, ambAcc = 0, hitCount = 0;
+const hitLog = [];
+let simT = 0;
+const clk = () => performance.now() / 1000;
+function later(dt, fn) { timers.push({ t: dt, fn }); }
+const PCAP = () => LOW ? 450 : 1400;
+
+// 파문 사건 등록(가장 약해진 것부터 교체)
+function ripple(X, Z, A, s, delay) {
+  const t0 = simT + (delay || 0);
+  if (EV.length >= EVMAX) {
+    let wi = -1, wv = 1e9;
+    for (let i = 0; i < EV.length; i++) {
+      const e = EV[i], age = Math.max(0, simT - e.t0), v = e.A * Math.exp(-age / (0.5 + 0.7 * e.s));
+      if (v < wv) { wv = v; wi = i; }
+    }
+    if (A < wv) return;
+    EV.splice(wi, 1);
+  }
+  EV.push({ X, Z, t0, A, s });
+}
+
+/* ======================================================================
+   피아노 음 분석: 반음 단위 피크 + 온셋 + 배음 억제
+   ====================================================================== */
+const MIN_MIDI = 36, MAX_MIDI = 88, NS = MAX_MIDI - MIN_MIDI + 1;   // C2 ~ E6
+let AC = null, analyser = null, stream = null, freqData = null;
+const L = new Float32Array(NS), prevL = new Float32Array(NS), slow = new Float32Array(NS), cool = new Float32Array(NS);
+let peakDb = -60;
+const HARM = [12, 19, 24, 28, 31, 34, 36];
+// [간격(반음), 기음 대비 n배음의 대략적 감쇠(dB)] — n = 2…12
+const HSH = [[12, 6], [19, 9], [24, 11], [28, 13], [31, 14], [34, 16], [36, 17], [38, 18], [40, 19], [41, 20], [42, 20], [43, 21]];
+const heldT = new Float64Array(NS).fill(-1e9);   // 반음별 마지막 트리거 시각
+// 피아노 스펙트럼은 저음이 훨씬 강함 → 높은 음일수록 바닥 기준을 낮춰 공정하게(왼쪽 쏠림 방지)
+const tilt = s => Math.min(14, Math.max(0, s - 6) * 0.3);
+
+let iMin = 1, iMax = 100, binHzG = 5.38, PROM = 16;
+const recent = [], pending = [];
+function setupBands() {
+  binHzG = AC.sampleRate / analyser.fftSize;
+  iMin = Math.max(8, Math.ceil(60 / binHzG)); iMax = Math.min(analyser.frequencyBinCount - 6, Math.floor(1500 / binHzG));
+  slow.fill(0); prevL.fill(-110); cool.fill(0); peakDb = -60; recent.length = 0; pending.length = 0;
+}
+function analyze(dt) {
+  if (!analyser) return;
+  analyser.getFloatFrequencyData(freqData);
+  const fd = freqData;
+  let fm = -200;
+  for (let i = iMin; i <= iMax; i++) if (fd[i] > fm) fm = fd[i];
+  peakDb = Math.max(fm, peakDb - 3 * dt, -75);
+  const floorDb = peakDb - 38;
+  L.fill(-110);
+  // 1) 스펙트럼 피크 → 포물선 보간으로 정확한 주파수 → 반음 번호
+  for (let i = iMin; i <= iMax; i++) {
+    const b = fd[i];
+    if (!(b > floorDb - 16) || !(b > -95)) continue;
+    if (b <= fd[i - 1] || b < fd[i + 1]) continue;
+    let dom = true;
+    for (let k = -3; k <= 3; k++) { if (k && fd[i + k] > b) { dom = false; break; } }
+    if (!dom) continue;
+    // 돋보임(prominence): 양옆 골짜기 중 높은 쪽보다 충분히 솟아야 함.
+    // 진짜 부분음은 골이 깊고(저음 화음처럼 부분음이 6칸 간격이어도), 잡음·번짐은 골이 얕음
+    let vl = b, vr = b;
+    for (let k = 1; k <= 6; k++) { if (fd[i - k] < vl) vl = fd[i - k]; if (fd[i + k] < vr) vr = fd[i + k]; }
+    if (b - Math.max(vl, vr) < PROM) continue;
+    const a = fd[i - 1], c = fd[i + 1], den = a - 2 * b + c;
+    const dl = den < -1e-6 ? clamp(0.5 * (a - c) / den, -0.5, 0.5) : 0;
+    const mf = 69 + 12 * Math.log2((i + dl) * binHzG / 440);
+    const s = Math.round(mf) - MIN_MIDI;
+    if (s < 0 || s >= NS) continue;
+    if (b > L[s]) L[s] = b;
+  }
+  // 피크가 한 프레임 사라져도 기준선이 끌려 내려가 재트리거되지 않도록 천천히 감쇠시킴
+  for (let s = 0; s < NS; s++) if (L[s] < -100 && prevL[s] > -100) L[s] = prevL[s] - 45 * dt;
+  // 2) 반음별 온셋(기준선 대비 급상승)
+  const T = lerp(10, 4, sens), base = 1 - Math.exp(-dt / 0.35);
+  const cands = [];
+  for (let s = 0; s < NS; s++) {
+    const m = L[s];
+    if (slow[s] === 0) slow[s] = m;
+    cool[s] -= dt;
+    const over = m - slow[s], rise = m - prevL[s];
+    if (cool[s] <= 0 && over > T + Math.max(0, s - 60) * 0.06 && rise > 0.4 && m > floorDb - tilt(s)) {
+      // 이웃 반음이 이미 울리는 중이면 누설/떨림으로 간주
+      let nb = false;
+      for (let d = -1; d <= 1; d += 2) { const q = s + d; if (q >= 0 && q < NS && L[q] > m - 3 && slow[q] > L[q] - 6) nb = true; }
+      if (!nb) cands.push({ s, m, over }); else if (window.RKDBG) RKDBG.push([clk(), s + MIN_MIDI, "nb"]);
+    }
+    prevL[s] = m;
+    slow[s] += (m - slow[s]) * base;
+  }
+  const now = clk();
+  while (recent.length && now - recent[0].t > 0.4) recent.shift();
+  for (const c of cands) { c.t = now; pending.push(c); cool[c.s] = 0.1; }
+  if (!pending.length) return;
+  // 3) 약 45ms 모아서 판단 → 같은 순간의 더 낮은 음의 배음(2·3·4·5배…)이면 제외
+  const ready = pending.filter(c => now - c.t >= 0.045);
+  if (!ready.length) return;
+  ready.sort((a, b) => a.s - b.s);
+  let kept = [];
+  for (const c of ready) {
+    let harm = false;
+    for (const k of pending) { if (k !== c && Math.abs(k.t - c.t) < 0.13 && HARM.includes(c.s - k.s) && k.m > c.m + 3) { harm = "P"; break; } }
+    if (!harm) for (const r of recent) { if (now - r.t < 0.25 && HARM.includes(c.s - r.s) && r.m > c.m + 3) { harm = "R"; break; } }
+    if (!harm) for (const h of HARM) { const q = c.s - h; if (q >= 0 && L[q] > c.m + 4 && L[q] - slow[q] > 2) { harm = "L"; break; } }   // 낮은 음이 막 울리는 중
+    // 배음 그림자: 지금 울리고 있는 낮은 음의 n배음이 맥놀이로 다시 솟은 것이면 제외
+    // (그 배음의 예상 세기보다 확실히 크지 않을 때만 — 같은 세기의 옥타브 위 멜로디는 살림)
+    if (!harm) for (const [h, drop] of HSH) {
+      const q = c.s - h;
+      if (q < 0) continue;
+      const mg = 5 + (q < 12 ? 3 : 0);   // C3 아래 저음은 기음이 배음보다 약함 → 여유를 더 줌
+      const dr = q < 12 ? drop * 0.75 : drop;
+      for (const k of pending) if (k !== c && k.s === q && Math.abs(k.t - c.t) < 0.13 && k.m - dr + mg > c.m) { harm = "H" + q; break; }
+      if (!harm) for (const r of recent) if (r.s === q && now - r.t < 0.3 && r.m - dr + mg > c.m) { harm = "H" + q; break; }
+      if (!harm && c.over < T + 6 && L[q] > -100 && heldT[q] > now - 1.6 && heldT[q] < c.t - 0.06 && L[q] - dr + mg > c.m) harm = "Hl" + q;
+      if (harm) break;
+    }
+    if (!harm) kept.push(c); else if (window.RKDBG) RKDBG.push([c.t, c.s + MIN_MIDI, harm]);
+  }
+  for (let i = pending.length - 1; i >= 0; i--) if (now - pending[i].t >= 0.045) pending.splice(i, 1);
+  if (kept.length > 9) { kept.sort((a, b) => b.m - a.m); kept = kept.slice(0, 3); }   // 타악/잡음성 → 대표만
+  kept.sort((a, b) => b.m - a.m);
+  for (let i = 0; i < kept.length && i < 8; i++) {
+    const c = kept[i];
+    const str = clamp(0.2 + (c.m - floorDb + tilt(c.s)) / 38 * 0.55 + clamp((c.over - T) / 25, 0, 1) * 0.35, 0.15, 1);
+    spawnNote(c.s, str, c.t);
+    recent.push({ s: c.s, m: c.m, t: now });
+    heldT[c.s] = c.t;
+    if (c.s > 0) cool[c.s - 1] = Math.max(cool[c.s - 1], 0.07);
+    if (c.s < NS - 1) cool[c.s + 1] = Math.max(cool[c.s + 1], 0.07);
+  }
+}
+
+/* ======================================================================
+   빗방울 생성
+   ====================================================================== */
+let windX = 0.0, windT = 0;
+function makeDrop(o) {
+  const sx = o.fracX * W;
+  const Z = o.Z, X = (sx - cx) * Z / f;
+  const Y0 = Math.max(hc * 0.6, hc - (-40 - y0) * Z / f);
+  drops.push({ kind: o.kind, tImp: o.tImp, T: o.T, X, Z, Y0, sz: o.sz, e: o.e, hue: o.hue, midi: o.midi, slant: o.slant || 0 });
+}
+function spawnAmb() {
+  const T = rand(0.32, 0.6), sz = rand(0.18, 0.34);
+  makeDrop({ kind: 'amb', tImp: simT + 0.05 + T, T, Z: rand(2.4, 8.5), fracX: rand(0.02, 0.98), sz, e: sz, hue: rand(190, 230), midi: null });
+}
+function spawnNote(s, str, tDet) {
+  if (drops.length > 200) return;
+  const midi = MIN_MIDI + s, lane = s / (NS - 1);
+  const sz = lerp(1.7, 0.55, lane) * (0.6 + 0.8 * str) * rand(0.92, 1.08);
+  const fracX = clamp(0.04 + 0.92 * lane + rand(-0.006, 0.006), 0.02, 0.98);
+  const T = fallT * rand(0.95, 1.05);
+  makeDrop({ kind: 'hit', tImp: simT + T, T, Z: rand(2.4, 6.4), fracX, sz, e: sz * rand(0.9, 1.15), hue: 255 - 95 * lane, midi, slant: windX + rand(-0.03, 0.03) });
+  hitCount++; hitLog.push({ midi, t: tDet || clk() }); if (hitLog.length > 2000) hitLog.shift();
+}
+
+/* ======================================================================
+   소리 입력 (시스템/탭 오디오 또는 마이크) — 출력 없이 분석만
+   ====================================================================== */
+function stopCapture(showOverlay) {
+  if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+  analyser = null; started = false;
+  $('tap').hidden = true;
+  if (showOverlay) overlay.classList.remove('hide');
+}
+let capT0 = 0;
+async function startCapture(kind) {
+  showMsg(''); stopCapture(false);
+  try {
+    if (kind === 'system') {
+      stream = await navigator.mediaDevices.getDisplayMedia({
+        video: true, audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+        systemAudio: 'include', selfBrowserSurface: 'exclude'
+      });
+      if (!stream.getAudioTracks().length) { stream.getTracks().forEach(t => t.stop()); stream = null; throw new Error('NOAUDIO'); }
+    } else {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+    }
+  } catch (e) {
+    stream = null;
+    if (e && e.message === 'NOAUDIO') showMsg('오디오가 공유되지 않았어요. 공유 창에서 "탭 오디오 공유" 또는 "시스템 오디오 공유"를 체크해 주세요. (Firefox·Safari는 미지원)');
+    else if (e && e.name === 'NotAllowedError') showMsg('권한이 거부되었거나 공유 창이 취소되었어요. 새 탭에서 직접 열어(https 또는 localhost) 다시 시도해 주세요.');
+    else showMsg('연결하지 못했어요: ' + (e && e.message ? e.message : e));
+    return;
+  }
+  AC = AC || new (window.AudioContext || window.webkitAudioContext)();
+  // 클릭 없이 자동 시작한 경우 브라우저가 오디오 시작을 막을 수 있음 → 기다리지 않고, 막혔으면 터치 안내
+  try { await Promise.race([AC.resume(), new Promise(r => setTimeout(r, 400))]); } catch (e) {}
+  if (AC.state !== 'running') armResume();
+  const src = AC.createMediaStreamSource(new MediaStream(stream.getAudioTracks()));
+  analyser = AC.createAnalyser(); analyser.fftSize = 8192; analyser.smoothingTimeConstant = 0;
+  const mute = AC.createGain(); mute.gain.value = 0;
+  src.connect(analyser); analyser.connect(mute); mute.connect(AC.destination);   // 분석 전용(소리 출력 없음)
+  freqData = new Float32Array(analyser.frequencyBinCount);
+  setupBands();
+  stream.getTracks().forEach(t => t.addEventListener('ended', () => { if (stream) { showMsg('소리 공유가 끝났어요.'); stopCapture(true); } }));
+  capT0 = clk(); hitLog.length = 0;
+  started = true; overlay.classList.add('hide');
+}
+
+/* ======================================================================
+   스플래시 물리(현상학적 모델, 슬로모션 시간축)
+   착수 → 분화구(공동)와 솟은 가장자리 → 얇은 물막 크라운 → 림의 레일리-플래토 불안정(리가먼트+구슬)
+   → 공동 붕괴 → 워딩턴 제트 → 핀치오프 → 튄 방울의 2차 착수(미니 크라운·떠있는 방울·파문)
+   ====================================================================== */
+function emit(X, Z, n, o) {
+  const cap = PCAP();
+  for (let i = 0; i < n && parts.length < cap; i++) {
+    let th = rand(0, TAU);
+    if (o.bias && Math.random() < o.bias.amt) th = o.bias.ang + rand(-0.7, 0.7);
+    const el = rand(o.elMin || 0.7, o.elMax || 1.3), s = rand(0.6, 1.4) * o.sp;
+    let r = rand(0.003, 0.0075) * o.rs; if (Math.random() < 0.12) r *= 1.7;
+    const R0 = o.R0 || 0.01;
+    parts.push({ X: X + Math.cos(th) * R0, Y: o.Y || 0.004, Z: Z + Math.sin(th) * R0,
+      vx: Math.cos(th) * Math.cos(el) * s + (o.wind || 0) * 0.4, vy: Math.sin(el) * s, vz: Math.sin(th) * Math.cos(el) * s, r, hue: o.hue });
+  }
+}
+function emitMist(X, Z, n, hue, e) {
+  const cap = PCAP();
+  for (let i = 0; i < n && parts.length < cap; i++) {
+    const th = rand(0, TAU), s = rand(0.15, 0.6) * (0.5 + e * 0.5);
+    parts.push({ X, Y: rand(0.01, 0.05), Z, vx: Math.cos(th) * s, vy: rand(0.2, 0.7), vz: Math.sin(th) * s, r: rand(0.01, 0.022), hue, mist: true, life: rand(0.35, 0.7), life0: 0.7 });
+  }
+}
+function newCrater(X, Z, Rc, depthK, hue) {
+  const tc = rand(0.06, 0.09) * (0.8 + 0.25 * depthK);
+  craters.push({ X, Z, t: 0, Rc, Dm: Rc * rand(0.55, 0.85) * depthK, tc, life: tc * rand(3.2, 4.0), hue });
+  return tc;
+}
+function newCrown(X, Z, e, hue, o) {
+  o = o || {};
+  const sc = (o.scale || 1) * rand(0.85, 1.15);
+  const R0 = (0.055 + 0.04 * e) * sc, Hm = (0.045 + 0.035 * e) * sc * (o.tall || 1);
+  const tp = rand(0.12, 0.17) * Math.sqrt(sc) * (o.tp || 1);
+  const k = o.tiny ? ((rand(6, 10)) | 0) : ((rand(12, LOW ? 16 : 24)) | 0);
+  const arcW = o.arc || TAU, arcC = rand(0, TAU);
+  const lig = [];
+  for (let i = 0; i < k; i++) {
+    const th = (i + rand(-0.3, 0.3)) / k * TAU;
+    if (arcW < TAU && Math.abs(angd(th, arcC)) > arcW / 2 * 0.85) continue;
+    if (Math.random() < 0.12) continue;                               // 모든 손가락이 다 자라지는 않음
+    lig.push({ th, el: rand(0.95, 1.4), len: Hm * rand(0.25, 0.85), w: (0.0026 + 0.0012 * e) * sc * rand(0.8, 1.2), rb: (0.0045 + 0.003 * e) * sc * rand(0.7, 1.3), tdet: tp * rand(1.0, 1.9), det: false, two: Math.random() < 0.3 });
+  }
+  return { X, Z, t: o.delay ? -o.delay : 0, R0, Hm, tp, life: tp * rand(2.8, 3.4), lig, arcW, arcC, hue, e, sc,
+    tilt: o.tilt || 0, tiltAng: o.tiltAng || 0, flare: rand(0.1, 0.45), w1: rand(0, TAU), w2: rand(0, TAU), wa: rand(0.03, 0.1), coll: false, tiny: !!o.tiny };
+}
+function newJet(X, Z, e, hue, delay, o) {
+  o = o || {};
+  const vy = (0.85 + 0.45 * e) * (o.vy || 1) * rand(0.88, 1.12);
+  return { X, Z, t: -delay, vy, w: (0.0075 + 0.005 * e) * (o.w || 1) * rand(0.85, 1.15), hue, e, det: false, tDet: 0, second: !!o.second, lean: o.lean || 0, leanAng: o.leanAng || 0, nb: 0 };
+}
+const angd = (a, b) => { let d = (a - b) % TAU; if (d > Math.PI) d -= TAU; if (d < -Math.PI) d += TAU; return d; };
+function pickRegime(e) {
+  const r = Math.random();
+  if (e < 0.5) return r < 0.45 ? 'dimple' : r < 0.75 ? 'bubble' : 'jet';
+  if (e < 0.85) return r < 0.15 ? 'dimple' : r < 0.3 ? 'bubble' : r < 0.72 ? 'jet' : 'crown';
+  if (e < 1.25) return r < 0.12 ? 'jet' : r < 0.48 ? 'crown' : r < 0.85 ? 'bigcrown' : 'cavity';
+  return r < 0.12 ? 'crown' : r < 0.5 ? 'bigcrown' : 'cavity';
+}
+function splash(X, Z, e, hue, wind, force) {
+  const reg = force || pickRegime(e);
+  const ang = rand(0, TAU), skew = Math.random() < 0.45 ? rand(0.2, 0.6) : 0;
+  const bias = skew > 0 ? { ang, amt: skew + 0.25 } : null;
+  const wd = wind || 0;
+  const depth = { dimple: 0.45, bubble: 0.55, jet: 0.8, crown: 1, bigcrown: 1.2, cavity: 1.6 }[reg];
+  const sc = rand(0.85, 1.15);
+  // 파문: 주 파문 + 공동 붕괴 때의 두 번째 파문
+  ripple(X, Z, (0.0006 + 0.0011 * e) * depth * sc, (0.55 + 0.45 * e) * (0.7 + 0.3 * depth));
+  ripple(X, Z, (0.0003 + 0.0006 * e) * depth, (0.4 + 0.3 * e), rand(0.12, 0.2));
+  flashes.push({ X, Z, t: 0, e, hue });
+  const Rc = (0.03 + 0.03 * e) * (0.6 + 0.5 * depth) * sc;
+  const tc = newCrater(X, Z, Rc, reg === 'cavity' ? 1.5 : reg === 'dimple' ? 0.5 : 1, hue);
+  // 착수 순간의 빠르고 낮은 각도의 미세 물보라(prompt splash)
+  emit(X, Z, reg === 'dimple' ? 2 : Math.round(rand(3, 7) * (0.6 + 0.4 * depth)), { sp: 0.8 + 0.6 * e, rs: 0.55, hue, bias, wind: wd, elMin: 0.25, elMax: 0.8, R0: Rc * 0.8 });
+  if (reg === 'dimple') {
+    if (Math.random() < 0.4) jets.push(newJet(X, Z, e * 0.5, hue, tc * 2, { vy: 0.6, w: 0.6 }));
+  } else if (reg === 'bubble') {
+    later(tc * 1.6, () => bubbles.push({ X, Z, r: rand(0.012, 0.024) * (0.7 + e), t: 0, life: rand(0.5, 1.6), hue, vx: rand(-0.03, 0.03), vz: rand(-0.03, 0.03) }));
+    if (Math.random() < 0.4) jets.push(newJet(X, Z, e * 0.6, hue, tc * 2, { vy: 0.7, w: 0.7 }));
+  } else if (reg === 'jet') {
+    jets.push(newJet(X, Z, e, hue, tc * 2.1, { second: Math.random() < 0.5, lean: skew * 0.25, leanAng: ang }));
+    emit(X, Z, Math.round(rand(2, 5)), { sp: 0.5 + 0.4 * e, rs: 0.9, hue, bias, wind: wd, R0: Rc });
+  } else {
+    const big = reg !== 'crown';
+    const partial = Math.random() < 0.28;
+    crowns.push(newCrown(X, Z, e, hue, { scale: big ? 1.2 : 1, arc: partial ? rand(2.4, 4.8) : TAU, tilt: skew, tiltAng: ang, tall: reg === 'cavity' ? 1.35 : 1 }));
+    if (reg === 'bigcrown' && Math.random() < 0.75) crowns.push(newCrown(X, Z, e * 0.8, hue, { scale: 0.55, delay: rand(0.05, 0.09), tall: 1.25, tp: 0.8 }));   // 이중 크라운
+    jets.push(newJet(X, Z, e, hue, tc * 2.2, { vy: reg === 'cavity' ? 1.35 : 1, w: reg === 'cavity' ? 1.4 : 1, second: Math.random() < 0.6, lean: skew * 0.2, leanAng: ang }));
+    if (big) emitMist(X, Z, LOW ? 3 : 5 + ((Math.random() * 5) | 0), hue, e);
+    if (reg === 'cavity' && Math.random() < 0.5) later(tc * 1.4, () => bubbles.push({ X: X + rand(-0.02, 0.02), Z: Z + rand(-0.02, 0.02), r: rand(0.008, 0.016), t: 0, life: rand(0.4, 1.0), hue, vx: rand(-0.04, 0.04), vz: rand(-0.04, 0.04) }));
+  }
+}
+function impact(d) {
+  if (d.midi != null) keyGlow[d.midi] = 1;
+  if (d.kind === 'amb') {
+    const e = d.sz;
+    ripple(d.X, d.Z, 0.00045 * (0.6 + e * 2), 0.35 + e);
+    newCrater(d.X, d.Z, 0.012 + 0.02 * e, 0.4, d.hue);
+    emit(d.X, d.Z, 1 + ((Math.random() * 3) | 0), { sp: 0.5, rs: 0.45, hue: d.hue, elMin: 0.6 });
+    if (Math.random() < 0.25) jets.push(newJet(d.X, d.Z, 0.25, d.hue, 0.1, { vy: 0.55, w: 0.5 }));
+    else if (Math.random() < 0.15) later(0.1, () => bubbles.push({ X: d.X, Z: d.Z, r: rand(0.008, 0.016), t: 0, life: rand(0.5, 1.5), hue: d.hue, vx: rand(-0.02, 0.02), vz: rand(-0.02, 0.02) }));
+    return;
+  }
+  splash(d.X, d.Z, d.e, d.hue, d.slant * 2.5);
+}
+
+/* ======================================================================
+   업데이트
+   ====================================================================== */
+function crownGeom(c, t) {   // 반지름·높이 시간 변화
+  const tp = c.tp;
+  const Rb = c.R0 * Math.sqrt(Math.min(1, t / tp)) * (1 + 0.22 * Math.max(0, (t - tp) / tp));
+  const Hc = c.Hm * (t / tp) * Math.exp(1 - t / tp);
+  const curl = 1 - 0.2 * sstep(1.1 * tp, 2.4 * tp, t);
+  return { Rb, Rt: Rb * (1.22 + c.flare * 0.5) * curl, Hc };
+}
+function crownH(c, th, Hc) {
+  let env = 1;
+  if (c.arcW < TAU) { const d = Math.abs(angd(th, c.arcC)); env = sstep(c.arcW / 2, c.arcW / 2 * 0.55, d); }
+  env *= 1 + c.tilt * Math.cos(th - c.tiltAng) * 0.7;
+  env *= 1 + c.wa * Math.sin(3 * th + c.w1) + c.wa * 0.6 * Math.sin(5 * th + c.w2);
+  return Hc * Math.max(0, env);
+}
+function updateFx(dt) {
+  windT += dt; windX = 0.09 * Math.sin(windT * 0.11) + 0.05 * Math.sin(windT * 0.37 + 1.3);
+  for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= dt; if (timers[i].t <= 0) { const fn = timers[i].fn; timers.splice(i, 1); fn(); } }
+  for (let i = EV.length - 1; i >= 0; i--) { const e = EV[i]; if (simT - e.t0 > 3.2 * (0.5 + 0.7 * e.s)) EV.splice(i, 1); }
+  const cap = PCAP();
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const p = parts[i];
+    if (p.mist) {
+      p.life -= dt; p.vy -= 1.2 * dt; p.vx *= 1 - 1.6 * dt; p.vz *= 1 - 1.6 * dt;
+      p.X += p.vx * dt; p.Y += p.vy * dt; p.Z += p.vz * dt; p.r += 0.015 * dt;
+      if (p.life <= 0 || p.Y < 0) parts.splice(i, 1);
+      continue;
+    }
+    p.vy -= G * dt; p.vx *= 1 - 0.3 * dt; p.vz *= 1 - 0.3 * dt;
+    p.X += p.vx * dt; p.Y += p.vy * dt; p.Z += p.vz * dt;
+    if (p.Y <= 0 && p.vy < 0) {
+      // 튄 방울의 2차 착수
+      if (p.Z > 1.2) {
+        ripple(p.X, p.Z, Math.min(0.0009, 0.00012 + p.r * 0.07), 0.22 + p.r * 30);
+        const sp = -p.vy, rr = Math.random();
+        if (!p.micro && p.r > 0.0055 && sp > 1.0 && rr < 0.35 && crowns.length < (LOW ? 6 : 14)) {
+          crowns.push(newCrown(p.X, p.Z, 0.3, p.hue, { scale: p.r * 38, tiny: true, tp: 0.55 }));
+        } else if (p.r < 0.008 && rr < 0.55 && floaters.length < 60) {
+          floaters.push({ X: p.X, Z: p.Z, r: p.r * 0.9, t: 0, life: rand(0.12, 0.6), vx: p.vx * 0.15, vz: p.vz * 0.15, hue: p.hue });   // 수면에 잠깐 떠 있다 합쳐지는 방울
+        } else if (!p.micro && p.r > 0.004 && rr < 0.8) {
+          for (let m = 0, n = 2 + ((Math.random() * 2) | 0); m < n && parts.length < cap; m++) {
+            const th = rand(0, TAU), el = rand(1.0, 1.45), s = rand(0.3, 0.7);
+            parts.push({ X: p.X, Y: 0.002, Z: p.Z, vx: Math.cos(th) * Math.cos(el) * s, vy: Math.sin(el) * s, vz: Math.sin(th) * Math.cos(el) * s, r: p.r * 0.45, hue: p.hue, micro: true });
+          }
+        }
+      }
+      parts.splice(i, 1);
+    } else if (p.Z < 0.6) parts.splice(i, 1);
+  }
+  for (let i = floaters.length - 1; i >= 0; i--) {
+    const fl = floaters[i]; fl.t += dt; fl.X += fl.vx * dt; fl.Z += fl.vz * dt; fl.vx *= 1 - 3 * dt; fl.vz *= 1 - 3 * dt;
+    if (fl.t > fl.life) {
+      ripple(fl.X, fl.Z, 0.00015 + fl.r * 0.03, 0.2 + fl.r * 20);
+      if (Math.random() < 0.35 && parts.length < cap) parts.push({ X: fl.X, Y: 0.002, Z: fl.Z, vx: rand(-0.05, 0.05), vy: rand(0.35, 0.6), vz: rand(-0.05, 0.05), r: fl.r * 0.5, hue: fl.hue, micro: true });   // 부분 합체 후 작은 방울이 튀어오름
+      floaters.splice(i, 1);
+    }
+  }
+  for (let i = craters.length - 1; i >= 0; i--) { craters[i].t += dt; if (craters[i].t > craters[i].life) craters.splice(i, 1); }
+  for (let i = crowns.length - 1; i >= 0; i--) {
+    const c = crowns[i]; c.t += dt;
+    if (c.t < 0) continue;
+    if (c.t > c.life) { crowns.splice(i, 1); continue; }
+    if (!c.coll && c.t > c.tp * 2.0) { c.coll = true; const gm = crownGeom(c, c.t); ripple(c.X, c.Z, 0.0004 * c.sc * (0.5 + c.e), 0.3 + 0.4 * c.e, 0); }
+    const gm = crownGeom(c, c.t);
+    for (const l of c.lig) {
+      if (l.det || c.t < l.tdet) continue;
+      l.det = true; l.tD = c.t;
+      if (parts.length >= cap) continue;
+      const h = crownH(c, l.th, gm.Hc), ox = Math.cos(l.th), oz = Math.sin(l.th);
+      const L = l.len, ce = Math.cos(l.el), se = Math.sin(l.el);
+      const tx = c.X + ox * (gm.Rt + L * ce), tz = c.Z + oz * (gm.Rt + L * ce), ty = h + L * se;
+      const sp = rand(0.35, 0.8) * (0.6 + 0.6 * c.e);
+      parts.push({ X: tx, Y: ty, Z: tz, vx: ox * (ce * sp + 0.15), vy: se * sp + 0.2, vz: oz * (ce * sp + 0.15), r: l.rb, hue: c.hue });
+      if (l.two && parts.length < cap) parts.push({ X: tx - ox * 0.01, Y: ty - 0.012, Z: tz - oz * 0.01, vx: ox * ce * sp * 0.7, vy: se * sp * 0.75 + 0.15, vz: oz * ce * sp * 0.7, r: l.rb * 0.6, hue: c.hue });
+    }
+  }
+  for (let i = jets.length - 1; i >= 0; i--) {
+    const j = jets[i]; j.t += dt;
+    if (j.t < 0) continue;
+    const vnow = j.vy - G * j.t, hh = j.vy * j.t - 0.5 * G * j.t * j.t;
+    const lx = j.lean * Math.cos(j.leanAng), lz = j.lean * Math.sin(j.leanAng);
+    if (!j.det && vnow < 0.42 * j.vy && j.t > 0.03) {   // 핀치오프: 끝 구슬이 떨어져 나감
+      j.det = true; j.tDet = j.t;
+      if (parts.length < cap) parts.push({ X: j.X + lx * hh, Y: hh, Z: j.Z + lz * hh, vx: rand(-0.04, 0.04) + lx * 0.6, vy: vnow + 0.25, vz: rand(-0.04, 0.04) + lz * 0.6, r: j.w * 1.45, hue: j.hue });
+    }
+    if (j.det && j.second && !j.secDone && j.t > j.tDet + 0.045) {
+      j.secDone = true;
+      const h2 = jetLen(j);
+      if (parts.length < cap && h2 > 0.01) parts.push({ X: j.X + lx * h2, Y: h2, Z: j.Z + lz * h2, vx: rand(-0.08, 0.08), vy: Math.max(0.15, vnow) + 0.35, vz: rand(-0.08, 0.08), r: j.w * 1.0, hue: j.hue });
+    }
+    if ((j.t > 0.05 && jetLen(j) <= 0) || j.t > 2) { ripple(j.X, j.Z, 0.00035 * (0.4 + j.e), 0.3 + 0.3 * j.e); jets.splice(i, 1); }
+  }
+  for (let i = bubbles.length - 1; i >= 0; i--) {
+    const b = bubbles[i]; b.t += dt; b.X += b.vx * dt; b.Z += b.vz * dt;
+    if (b.t > b.life) {   // 기포 터짐: 미세 물방울 + 작은 파문
+      ripple(b.X, b.Z, 0.00035, 0.25 + b.r * 6);
+      emit(b.X, b.Z, 3 + ((Math.random() * 4) | 0), { sp: 0.45, rs: 0.35, hue: b.hue, elMin: 0.9, elMax: 1.45, R0: b.r * 0.7 });
+      bubbles.splice(i, 1);
+    }
+  }
+  for (let i = flashes.length - 1; i >= 0; i--) { flashes[i].t += dt; if (flashes[i].t > 0.16) flashes.splice(i, 1); }
+  for (let m = 0; m < 128; m++) if (keyGlow[m] > 0) keyGlow[m] = Math.max(0, keyGlow[m] - dt * 1.6);
+}
+function jetLen(j) {
+  const h = j.vy * j.t - 0.5 * G * j.t * j.t;
+  if (!j.det) return h;
+  const hD = j.vy * j.tDet - 0.5 * G * j.tDet * j.tDet;
+  return Math.min(h, hD * (1 - (j.t - j.tDet) / 0.14));   // 떨어진 뒤 기둥이 수면으로 되돌아감
+}
+
+/* ======================================================================
+   메쉬 생성: 격자(위치) → 유한차분 법선 → 삼각형(먼 쪽/가까운 쪽 버퍼로 나눠 뒤에서 앞으로)
+   ====================================================================== */
+const TP = new Float32Array(4096 * 3), TN = new Float32Array(4096 * 3), TA = new Float32Array(4096 * 2);
+function put(A, k, i, hue, mode) {
+  const o = k * 10;
+  A[o] = TP[i * 3]; A[o + 1] = TP[i * 3 + 1]; A[o + 2] = TP[i * 3 + 2];
+  A[o + 3] = TN[i * 3]; A[o + 4] = TN[i * 3 + 1]; A[o + 5] = TN[i * 3 + 2];
+  A[o + 6] = TA[i * 2]; A[o + 7] = TA[i * 2 + 1]; A[o + 8] = hue; A[o + 9] = mode;
+}
+function normals(nu, nv, closed) {
+  const row = nu + 1;
+  for (let j = 0; j <= nv; j++) for (let i = 0; i <= nu; i++) {
+    const k = j * row + i;
+    let ia = i - 1, ib = i + 1;
+    if (closed) { if (ia < 0) ia = nu - 1; if (ib > nu) ib = 1; } else { ia = Math.max(0, ia); ib = Math.min(nu, ib); }
+    const ja = Math.max(0, j - 1), jb = Math.min(nv, j + 1);
+    const a = (j * row + ia) * 3, b = (j * row + ib) * 3, c = (ja * row + i) * 3, d = (jb * row + i) * 3;
+    const ux = TP[b] - TP[a], uy = TP[b + 1] - TP[a + 1], uz = TP[b + 2] - TP[a + 2];
+    const vx = TP[d] - TP[c], vy = TP[d + 1] - TP[c + 1], vz = TP[d + 2] - TP[c + 2];
+    let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    const l = Math.hypot(nx, ny, nz);
+    if (l < 1e-12) { nx = 0; ny = 1; nz = 0; } else { nx /= l; ny /= l; nz /= l; }
+    TN[k * 3] = nx; TN[k * 3 + 1] = ny; TN[k * 3 + 2] = nz;
+  }
+}
+function emitGrid(nu, nv, closed, hue, objZ) {
+  normals(nu, nv, closed);
+  const row = nu + 1;
+  for (let j = 0; j < nv; j++) for (let i = 0; i < nu; i++) {
+    const a = j * row + i, b = a + 1, c = a + row + 1, d = a + row;
+    if (TA[a * 2 + 1] + TA[b * 2 + 1] + TA[c * 2 + 1] + TA[d * 2 + 1] < 0.01) continue;
+    const zc = (TP[a * 3 + 2] + TP[c * 3 + 2]) * 0.5;
+    if (zc > objZ) { if (nF + 6 > CAP_F) return; put(MF, nF++, a, hue, 0); put(MF, nF++, b, hue, 0); put(MF, nF++, c, hue, 0); put(MF, nF++, a, hue, 0); put(MF, nF++, c, hue, 0); put(MF, nF++, d, hue, 0); }
+    else { if (nN + 6 > CAP_N) return; put(MN, nN++, a, hue, 0); put(MN, nN++, b, hue, 0); put(MN, nN++, c, hue, 0); put(MN, nN++, a, hue, 0); put(MN, nN++, c, hue, 0); put(MN, nN++, d, hue, 0); }
+  }
+}
+function setP(k, x, y, z, th, al) { TP[k * 3] = x; TP[k * 3 + 1] = y; TP[k * 3 + 2] = z; TA[k * 2] = th; TA[k * 2 + 1] = al; }
+
+// 분화구: 멕시칸 햇 모양 수면(가운데 공동, 솟은 가장자리). 먼 쪽은 바깥→안, 가까운 쪽은 안→바깥 순서로 그려 가림 처리
+function buildCrater(c) {
+  const t = c.t, tc = c.tc;
+  let D;
+  if (t < tc) D = c.Dm * Math.sin(t / tc * Math.PI / 2);
+  else D = c.Dm * (1 - 1.3 * Math.min(1, (t - tc) / (1.3 * tc)));
+  const rim = 0.4 * c.Dm * Math.min(1, t / tc) * Math.exp(-Math.max(0, t - tc) / (1.3 * tc));
+  const fade = 1 - sstep(c.life * 0.6, c.life, t);
+  const Rc = c.Rc * (0.75 + 0.25 * Math.min(1, t / tc)), Rd = 2.6 * Rc;
+  const nu = LOW ? 28 : 44, nv = LOW ? 8 : 12, row = nu + 1;
+  for (let j = 0; j <= nv; j++) {
+    const v = j / nv, r = Rd * Math.pow(v, 1.25);
+    const q = r / Rc;
+    const h = -D * Math.exp(-q * q) + rim * Math.exp(-Math.pow((q - 1.3) / 0.38, 2));
+    const al = fade * (1 - sstep(0.45, 1.0, v)), dk = clamp(-h / (c.Dm + 1e-6), 0, 1);
+    for (let i = 0; i <= nu; i++) { const th = i / nu * TAU; setP(j * row + i, c.X + r * Math.cos(th), h, c.Z + r * Math.sin(th), dk, al); }
+  }
+  normals(nu, nv, true);
+  const quad = (i, j) => {
+    if (nC + 6 > CAP_C) return;
+    const a = j * row + i, b = a + 1, cc = a + row + 1, d = a + row;
+    put(MC, nC++, a, c.hue, 1); put(MC, nC++, b, c.hue, 1); put(MC, nC++, cc, c.hue, 1); put(MC, nC++, a, c.hue, 1); put(MC, nC++, cc, c.hue, 1); put(MC, nC++, d, c.hue, 1);
+  };
+  for (let i = 0; i < nu; i++) if (Math.sin((i + 0.5) / nu * TAU) > 0) for (let j = nv - 1; j >= 0; j--) quad(i, j);
+  for (let i = 0; i < nu; i++) if (Math.sin((i + 0.5) / nu * TAU) <= 0) for (let j = 0; j < nv; j++) quad(i, j);
+}
+
+// 크라운: 바깥으로 벌어진 얇은 물막 + 두꺼운 림 + 림에서 자라는 리가먼트(끝에 구슬)
+function buildCrown(c) {
+  if (c.t <= 0) return;
+  const t = c.t, gm = crownGeom(c, t);
+  const fade = 1 - sstep(c.life * 0.62, c.life, t);
+  const nu = c.tiny ? 28 : (LOW ? 56 : 96), nv = c.tiny ? 3 : 6, row = nu + 1;
+  const kk = c.lig.length;
+  const scal = sstep(0.3 * c.tp, 1.1 * c.tp, t);
+  for (let i = 0; i <= nu; i++) {
+    const th = i / nu * TAU;
+    let h = crownH(c, th, gm.Hc);
+    // 림의 물결(스캘럽): 리가먼트가 자라는 자리로 막이 살짝 끌려 올라감
+    let bump = 0;
+    for (let q = 0; q < kk; q++) { const d = angd(th, c.lig[q].th) * gm.Rt / (gm.Rt * TAU / Math.max(8, kk) * 0.35); bump += Math.exp(-d * d); }
+    h *= 1 + 0.22 * scal * Math.min(1, bump);
+    const co = Math.cos(th), si = Math.sin(th);
+    for (let j = 0; j <= nv; j++) {
+      const v = j / nv;
+      const r = gm.Rb + (gm.Rt - gm.Rb) * Math.pow(v, 1.7);
+      const y = h * v * (1 + 0.1 * (1 - v)) - 0.003;
+      const th_ = 0.12 + 0.88 * Math.pow(v, 4);
+      const al = h > 1e-4 ? fade * (0.2 + 0.5 * sstep(0, 0.35, v) + 0.3 * sstep(0.7, 1, v)) : 0;
+      setP(j * row + i, c.X + r * co, y, c.Z + r * si, th_, al);
+    }
+  }
+  emitGrid(nu, nv, true, c.hue, c.Z);
+  if (c.tiny) return;
+  // 리가먼트(가는 원통) + 끝 구슬
+  const grow = sstep(0.4 * c.tp, 1.3 * c.tp, t);
+  for (const l of c.lig) {
+    let len = l.len * grow;
+    if (l.det) len *= Math.max(0, 1 - (t - l.tD) / 0.07);
+    if (len < 0.003) continue;
+    const h = crownH(c, l.th, gm.Hc) * 1.2;
+    if (h < 0.004) continue;
+    const ox = Math.cos(l.th), oz = Math.sin(l.th), ce = Math.cos(l.el), se = Math.sin(l.el);
+    const bx = c.X + ox * gm.Rt, bz = c.Z + oz * gm.Rt, by = h - 0.002;
+    const dx = ox * ce, dy = se, dz = oz * ce;
+    tube([bx, by, bz], [dx, dy, dz], len, [l.w * 1.6, l.w, l.w * 0.85], c.hue, c.Z, fade);
+    if (!l.det) sph(bx + dx * len, by + dy * len, bz + dz * len, l.rb * (0.6 + 0.4 * grow), c.hue, fade, 0);
+  }
+}
+function tube(p0, d, len, radii, hue, objZ, al) {
+  const na = LOW ? 5 : 7, nv = radii.length - 1, row = na + 1;
+  let ax = d[2], ay = 0, az = -d[0]; let la = Math.hypot(ax, az);
+  if (la < 1e-6) { ax = 1; az = 0; la = 1; }
+  ax /= la; az /= la;
+  const bx = d[1] * az - d[2] * ay, by = d[2] * ax - d[0] * az, bz = d[0] * ay - d[1] * ax;
+  for (let j = 0; j <= nv; j++) {
+    const v = j / nv, r = radii[j];
+    const cxp = p0[0] + d[0] * len * v, cyp = p0[1] + d[1] * len * v, czp = p0[2] + d[2] * len * v;
+    for (let i = 0; i <= na; i++) {
+      const ph = i / na * TAU, cc = Math.cos(ph), ss = Math.sin(ph);
+      setP(j * row + i, cxp + r * (ax * cc + bx * ss), cyp + r * (ay * cc + by * ss), czp + r * (az * cc + bz * ss), 1, al);
+    }
+  }
+  emitGrid(na, nv, true, hue, objZ);
+}
+// 워딩턴 제트: 아래가 굵은 물기둥 + 끝 구슬
+function buildJet(j) {
+  if (j.t < 0) return;
+  const h = jetLen(j); if (h <= 0.002) return;
+  const nu = LOW ? 10 : 16, nv = 10, row = nu + 1;
+  const lx = j.lean * Math.cos(j.leanAng), lz = j.lean * Math.sin(j.leanAng);
+  const fresh = Math.min(1, j.t / 0.05);
+  for (let k = 0; k <= nv; k++) {
+    const u = k / nv;
+    const r = j.w * (0.75 + 2.2 * Math.pow(1 - u, 3)) * (0.7 + 0.3 * fresh) * (j.det ? 0.85 : 1) + (j.det ? 0 : j.w * 0.35 * sstep(0.7, 1, u));
+    const ccx = j.X + lx * h * u * u, ccz = j.Z + lz * h * u * u, yy = h * u - 0.002;
+    const al = 0.35 + 0.65 * sstep(0, 0.18, u);
+    for (let i = 0; i <= nu; i++) { const ph = i / nu * TAU; setP(k * row + i, ccx + r * Math.cos(ph), yy, ccz + r * Math.sin(ph), 1, al); }
+  }
+  emitGrid(nu, nv, true, j.hue, j.Z);
+  if (!j.det) sph(j.X + lx * h, h + j.w * 0.6, j.Z + lz * h, j.w * 1.45, j.hue, 1, 0);
+}
+function sph(x, y, z, r, hue, a, kind) {
+  if (nS >= SCAP || z < 0.5) return;
+  const o = nS * 8;
+  SB[o] = x; SB[o + 1] = y; SB[o + 2] = z; SB[o + 3] = r; SB[o + 4] = hue; SB[o + 5] = a; SB[o + 6] = kind; SB[o + 7] = 0;
+  nS++;
+}
+
+/* ======================================================================
+   그리기
+   ====================================================================== */
+const evA = new Float32Array(EVMAX * 4), evB = new Float32Array(EVMAX * 4);
+function commonUniforms(p, t) {
+  gl.uniform2f(p.u.uView, W, H); gl.uniform1f(p.u.uY0, y0); gl.uniform1f(p.u.uF, f); gl.uniform1f(p.u.uHc, hc); gl.uniform1f(p.u.uCx, cx); gl.uniform1f(p.u.uTime, t);
+  if (p.u.uEvA) { gl.uniform4fv(p.u.uEvA, evA); gl.uniform4fv(p.u.uEvB, evB); gl.uniform1i(p.u.uEvN, EV.length); }
+}
+function drawGL(t) {
+  for (let i = 0; i < EV.length; i++) { const e = EV[i]; evA[i * 4] = e.X; evA[i * 4 + 1] = e.Z; evA[i * 4 + 2] = simT - e.t0; evA[i * 4 + 3] = e.A; evB[i * 4] = e.s; }
+  // 메쉬·구 구성
+  nC = nF = nN = nS = 0;
+  for (const c of craters) buildCrater(c);
+  for (const c of crowns) buildCrown(c);
+  for (const j of jets) buildJet(j);
+  for (const b of bubbles) sph(b.X, 0, b.Z, b.r * Math.min(1, b.t / 0.08 + 0.3), b.hue, 1, 1);
+  for (const fl of floaters) sph(fl.X, fl.r * 0.45, fl.Z, fl.r, fl.hue, 1, 0);
+  for (const p of parts) { if (p.mist) sph(p.X, p.Y, p.Z, p.r, p.hue, Math.max(0, p.life / p.life0) * 0.22, 2); else sph(p.X, p.Y, p.Z, p.r, p.hue, 1, 0); }
+  for (const d of drops) {
+    const u = (simT - (d.tImp - d.T)) / d.T; if (u < 0 || u >= 1) continue;
+    const Y = d.Y0 * (1 - u * u);
+    sph(d.X + d.slant * Y, Y, d.Z, (d.kind === 'amb' ? 0.007 : 0.011) * (0.6 + d.sz * 0.6), d.hue, d.kind === 'amb' ? 0.7 : 1, 0);
+  }
+  const nReal = nS;
+  // 거울상(수면 반사) 인스턴스
+  for (let i = 0; i < nReal && nS < SCAP; i++) {
+    const o = i * 8, q = nS * 8;
+    if (SB[o + 1] > 0.6) continue;
+    for (let k = 0; k < 8; k++) SB[q + k] = SB[o + k];
+    SB[q + 7] = 1; nS++;
+  }
+
+  // 1) 바다 → 텍스처
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fbo); gl.viewport(0, 0, fboW, fboH);
+  gl.disable(gl.BLEND);
+  gl.useProgram(pSea); commonUniforms(pSea, t);
+  gl.uniform2f(pSea.u.uFbo, fboW, fboH); gl.uniform1f(pSea.u.uPx, fboW / W); gl.uniform1f(pSea.u.uCalm, 0.62);
+  gl.bindVertexArray(vaoFull); gl.drawArrays(gl.TRIANGLES, 0, 3);
+  // 2) 화면으로 복사
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, glc.width, glc.height);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, fboTex);
+  gl.useProgram(pBlit); gl.uniform1i(pBlit.u.uScene, 0); gl.uniform2f(pBlit.u.uCanvas, glc.width, glc.height);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  // 3) 물막·물방울 (premultiplied alpha)
+  gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+  gl.bindVertexArray(vaoMesh); gl.bindBuffer(gl.ARRAY_BUFFER, meshBuf);
+  if (nC) gl.bufferSubData(gl.ARRAY_BUFFER, 0, MC, 0, nC * 10);
+  if (nF) gl.bufferSubData(gl.ARRAY_BUFFER, CAP_C * 40, MF, 0, nF * 10);
+  if (nN) gl.bufferSubData(gl.ARRAY_BUFFER, (CAP_C + CAP_F) * 40, MN, 0, nN * 10);
+  gl.useProgram(pMesh); commonUniforms(pMesh, t);
+  gl.uniform1i(pMesh.u.uScene, 0); gl.uniform2f(pMesh.u.uCanvas, glc.width, glc.height);
+  gl.uniform1f(pMesh.u.uMirror, 1);
+  if (nF) gl.drawArrays(gl.TRIANGLES, CAP_C, nF);
+  if (nN) gl.drawArrays(gl.TRIANGLES, CAP_C + CAP_F, nN);
+  gl.useProgram(pSph); commonUniforms(pSph, t); gl.uniform1i(pSph.u.uScene, 0);
+  gl.bindVertexArray(vaoSph); gl.bindBuffer(gl.ARRAY_BUFFER, sphBuf);
+  if (nS) gl.bufferSubData(gl.ARRAY_BUFFER, 0, SB, 0, nS * 8);
+  drawSpheresRange(nReal, nS - nReal);   // 거울상 구 먼저
+  gl.useProgram(pMesh); gl.bindVertexArray(vaoMesh);
+  gl.uniform1f(pMesh.u.uMirror, 0);
+  if (nC) gl.drawArrays(gl.TRIANGLES, 0, nC);
+  if (nF) gl.drawArrays(gl.TRIANGLES, CAP_C, nF);
+  if (nN) gl.drawArrays(gl.TRIANGLES, CAP_C + CAP_F, nN);
+  gl.useProgram(pSph); gl.bindVertexArray(vaoSph);
+  drawSpheresRange(0, nReal);
+  gl.disable(gl.BLEND);
+  gl.bindVertexArray(null);
+}
+function drawSpheresRange(first, count) {
+  if (count <= 0) return;
+  const ls = n => gl.getAttribLocation(pSph, n);
+  gl.bindBuffer(gl.ARRAY_BUFFER, sphBuf);
+  gl.vertexAttribPointer(ls('iA'), 4, gl.FLOAT, false, 32, first * 32);
+  gl.vertexAttribPointer(ls('iB'), 4, gl.FLOAT, false, 32, first * 32 + 16);
+  gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, count);
+}
+
+function drawKeys() {
+  for (let m = MIN_MIDI; m <= MAX_MIDI; m++) {
+    const lane = (m - MIN_MIDI) / (MAX_MIDI - MIN_MIDI), x = W * (0.04 + 0.92 * lane);
+    const blk = [1, 3, 6, 8, 10].includes(m % 12), w = Math.max(2.5, W * 0.92 / NS * 0.78), gl_ = keyGlow[m];
+    if (gl_ > 0.01) { g.fillStyle = `hsla(${(255 - 95 * lane) | 0},95%,${(62 + 22 * gl_) | 0}%,${(0.3 + 0.7 * gl_).toFixed(2)})`; g.fillRect(x - w / 2, 10, w, (blk ? 10 : 16) + gl_ * 8); }
+    else { g.fillStyle = blk ? 'rgba(120,140,200,0.24)' : 'rgba(200,215,255,0.16)'; g.fillRect(x - w / 2, 10, w, blk ? 9 : 15); }
+  }
+}
+// 2D 오버레이: 낙하 궤적(모션 블러), 착수 순간의 빛, 건반
+function render2D() {
+  g.setTransform(DPR, 0, 0, DPR, 0, 0);
+  g.clearRect(0, 0, W, H);
+  g.lineCap = 'round';
+  for (const d of drops) {
+    const u = (simT - (d.tImp - d.T)) / d.T; if (u < 0 || u >= 1) continue;
+    const Z = d.Z, Y = d.Y0 * (1 - u * u);
+    const u2 = Math.max(0, u - (d.kind === 'amb' ? 0.06 : 0.05) / d.T), Yt = d.Y0 * (1 - u2 * u2);
+    const sx = pjx(d.X + d.slant * Y, Z), sy = pjy(Y, Z), tx = pjx(d.X + d.slant * Yt, Z), ty = pjy(Yt, Z);
+    if (sy < -30) continue;
+    const rp = Math.max(0.8, f * 0.011 * (0.6 + d.sz * 0.6) / Z), al = d.kind === 'amb' ? 0.35 : 0.6;
+    const tg = g.createLinearGradient(tx, ty, sx, sy);
+    tg.addColorStop(0, `hsla(${d.hue | 0},80%,82%,0)`); tg.addColorStop(1, `hsla(${d.hue | 0},80%,85%,${al.toFixed(2)})`);
+    g.strokeStyle = tg; g.lineWidth = rp * 1.1; g.beginPath(); g.moveTo(tx, ty); g.lineTo(sx, sy - rp); g.stroke();
+    if (d.kind !== 'amb') {
+      g.globalCompositeOperation = 'lighter';
+      const R = rp * 3.2, gr = g.createRadialGradient(sx, sy, 0, sx, sy, R);
+      gr.addColorStop(0, `hsla(${d.hue | 0},95%,75%,0.22)`); gr.addColorStop(1, `hsla(${d.hue | 0},95%,70%,0)`);
+      g.fillStyle = gr; g.fillRect(sx - R, sy - R, R * 2, R * 2);
+      g.globalCompositeOperation = 'source-over';
+    }
+  }
+  g.globalCompositeOperation = 'lighter';
+  for (const fl of flashes) {
+    const k = fl.t / 0.16, sx = pjx(fl.X, fl.Z), sy = pjy(0.005, fl.Z), R = f * (0.03 + 0.04 * fl.e) / fl.Z * (1 + k * 2);
+    const gr = g.createRadialGradient(sx, sy, 0, sx, sy, R);
+    gr.addColorStop(0, `hsla(${fl.hue | 0},90%,80%,${(0.35 * (1 - k)).toFixed(3)})`); gr.addColorStop(1, `hsla(${fl.hue | 0},90%,70%,0)`);
+    g.save(); g.translate(sx, sy); g.scale(1, 0.45); g.translate(-sx, -sy);
+    g.fillStyle = gr; g.fillRect(sx - R, sy - R, R * 2, R * 2); g.restore();
+  }
+  g.globalCompositeOperation = 'source-over';
+  if (showKeys) drawKeys();
+}
+
+/* ======================================================================
+   메인 루프 / UI
+   ====================================================================== */
+let last = performance.now(), manual = false, fpsAcc = 0, fpsN = 0, fps = 60, slowSec = 0;
+const T0 = performance.now();
+function step(dt) {
+  simT += dt;
+  if (!manual) analyze(dt);
+  ambAcc += (started ? 1.6 : 3) * dt;
+  while (ambAcc >= 1) { ambAcc -= 1; spawnAmb(); }
+  for (let i = drops.length - 1; i >= 0; i--) { if (simT >= drops[i].tImp) { const d = drops[i]; drops.splice(i, 1); impact(d); } }
+  updateFx(dt);
+}
+function draw() {
+  if (glReady) drawGL(simT);
+  render2D();
+}
+function frame(ts) {
+  const rdt = (ts - last) / 1000; last = ts;
+  fpsAcc += rdt; fpsN++;
+  if (fpsAcc > 1) {
+    fps = fpsN / fpsAcc; fpsAcc = 0; fpsN = 0;
+    // 3초 연속 40fps 미만이면 자동으로 저사양 모드(해상도·입자 수 축소)
+    slowSec = !manual && !document.hidden && fps < 40 ? slowSec + 1 : 0;
+    if (slowSec >= 3 && !LOW) { LOW = true; $('low').checked = true; resize(); }
+  }
+  if (!manual) { step(Math.min(0.05, rdt)); draw(); }
+  requestAnimationFrame(frame);
+}
+
+$('sens').addEventListener('input', e => { sens = +e.target.value; });
+$('fall').addEventListener('input', e => { fallT = +e.target.value; $('fallv').textContent = Math.round(fallT * 1000) + 'ms'; });
+$('keys').addEventListener('change', e => { showKeys = e.target.checked; });
+$('low').addEventListener('change', e => { LOW = e.target.checked; resize(); });
+$('src').addEventListener('click', () => stopCapture(true));
+$('fs').addEventListener('click', () => {
+  if (!document.fullscreenElement) (document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen || (() => {})).call(document.documentElement);
+  else (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+});
+$('fallv').textContent = Math.round(fallT * 1000) + 'ms';
+const canSys = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) && !window.matchMedia('(pointer:coarse)').matches;
+if (!canSys) { $('btnSys').style.display = 'none'; $('sysnote').textContent = '이 기기/브라우저는 내부 소리 공유를 지원하지 않아 마이크로 듣는 방식만 가능해요.'; }
+$('btnSys').addEventListener('click', () => startCapture('system'));
+$('btnMic').addEventListener('click', () => startCapture('mic'));
+
+let idleTimer = 0;
+function wake() { $('panel').classList.remove('idle'); clearTimeout(idleTimer); idleTimer = setTimeout(() => $('panel').classList.add('idle'), 3800); }
+['pointermove', 'pointerdown', 'keydown'].forEach(ev => window.addEventListener(ev, wake, { passive: true }));
+
+// 오디오가 막혔을 때: 화면 아무 곳이나 한 번 누르면 시작
+function armResume() {
+  $('tap').hidden = false;
+  const go = () => {
+    if (!AC) return;
+    AC.resume().then(() => { if (AC.state === 'running') { $('tap').hidden = true; ['pointerdown', 'keydown', 'touchend'].forEach(ev => window.removeEventListener(ev, go)); } });
+  };
+  ['pointerdown', 'keydown', 'touchend'].forEach(ev => window.addEventListener(ev, go));
+}
+// 이 사이트에 마이크 권한을 이미 허용했다면 버튼 없이 바로 시작
+async function autoStart() {
+  try {
+    if (!navigator.permissions || !navigator.mediaDevices) return;
+    const st = await navigator.permissions.query({ name: 'microphone' });
+    if (st.state === 'granted' && !started) await startCapture('mic');
+  } catch (e) {}
+}
+
+try { initGL(); } catch (e) { console.error(e); showMsg('이 브라우저는 WebGL2를 지원하지 않아 바다를 그릴 수 없어요. 최신 Chrome/Edge/Safari를 사용해 주세요.'); }
+resize();
+requestAnimationFrame(frame);
+autoStart();
+// 테스트용 훅
+window.RK = {
+  splash: (fx, Z, e, reg) => { const X = (fx * W - cx) * Z / f; splash(X, Z, e, 200, 0, reg); },
+  spawnNote, hitLog, get capT0() { return capT0; }, get started() { return started; }, get hits() { return hitCount; }, get gl() { return glReady; }, get fps() { return fps; },
+  manual(on) { manual = on; }, step(n, dt) { for (let i = 0; i < n; i++) step(dt); draw(); },
+  clear() { drops.length = parts.length = crowns.length = jets.length = craters.length = bubbles.length = floaters.length = flashes.length = timers.length = EV.length = 0; ambAcc = -1e9; },
+  dump: () => ({ jets: jets.map(j => [+j.t.toFixed(2), +jetLen(j).toFixed(3), j.det, +j.vy.toFixed(2)]), crowns: crowns.map(c => [+c.t.toFixed(2), c.life.toFixed(2)]), craters: craters.length, bub: bubbles.length, drops: drops.length, parts: parts.filter(p => !(p.Y > -1 && p.Y < 5)).length }),
+  counts: () => ({ parts: parts.length, crowns: crowns.length, jets: jets.length, ev: EV.length, nF, nN, nC, nS })
+};
+})();
+</script>
+</body>
+</html>
