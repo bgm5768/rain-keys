@@ -149,7 +149,7 @@ vec3 sky(vec3 d){
   c=mix(c, vec3(0.03,0.03,0.08), smoothstep(0.6,1.0,e));
   // 낮게 깔린 비구름: 도시 불빛에 아래쪽이 보랏빛으로 물듦
   if(d.y>0.0){
-    vec2 cp=d.xz/(d.y+0.06)*0.55-vec2(uTime*0.018,0.0);           // 바람 따라 오른쪽으로 흘러가는 구름
+    vec2 cp=d.xz/(d.y+0.06)*0.55-vec2(uTime*0.007,0.0);           // 바람 따라 오른쪽으로 흘러가는 구름
     float cl=fbm(cp)*0.75+fbm(cp*2.7+5.0)*0.25;
     float hz=1.0-smoothstep(0.0,0.35,e);
     c*=0.72+0.6*smoothstep(0.3,0.75,cl);
@@ -326,7 +326,7 @@ uniform float uTime; out vec4 o;
 float h12(vec2 p){ p=fract(p*vec2(123.34,456.21)); p+=dot(p,p+45.32); return fract(p.x*p.y); }
 void main(){
   float n=h12(floor(gl_FragCoord.xy)+fract(uTime*7.31)*97.0)-0.5;
-  o=vec4(vec3(n>0.0?1.0:0.0)*abs(n)*0.07, abs(n)*0.07);
+  o=vec4(vec3(n>0.0?1.0:0.0)*abs(n)*0.035, abs(n)*0.035);
 }`;
 // 빗줄기: 셔터 동안 움직인 만큼 늘어난 가는 선. 뒤 배경의 빛을 굴절해 받아 밝게 보임
 const VS_STK = COMMON + `
@@ -569,7 +569,7 @@ const hitLog = [];
 let simT = 0, fxT = 0;
 // 스플래시·파문의 시간 배속. 3이면 거의 실제 속도(이전 버전은 약 3배 슬로모션)
 const TSCALE = 3.0;
-const RAIN = 0.9;    // 소리가 가장 클 때 수면 전체 빗방울 파문의 밀도(0~1)
+const RAIN = 0.35;   // 소리가 가장 클 때 수면 전체 빗방울 파문의 밀도(0~1) — 잔잔하게
 const clk = () => performance.now() / 1000;
 function later(dt, fn) { timers.push({ t: dt, fn }); }
 const PCAP = () => LOW ? 450 : 1400;
@@ -670,7 +670,7 @@ function analyze(dt) {
     const lv = L[s] > -100 ? clamp((L[s] - floorDb + tilt(s)) / 30, 0, 1) : 0;
     if (lv <= 0) { drizAcc[s] = 0; continue; }
     tot += lv;
-    drizAcc[s] += Math.pow(lv, 1.5) * (LOW ? 140 : 380) * dt;   // 빗방울은 0.05초 만에 화면을 지나가므로 초당 수백 개가 필요
+    drizAcc[s] += lv * lv * (LOW ? 40 : 90) * dt;   // 빗방울은 0.05초 만에 화면을 지나가므로 초당 수백 개가 필요
     while (drizAcc[s] >= 1) { drizAcc[s] -= 1; spawnDrizzle(MIN_MIDI + s, lv); }
   }
   soundLvl = tot;
@@ -1208,7 +1208,7 @@ function drawGL(t) {
   gl.bindFramebuffer(gl.FRAMEBUFFER, fbo); gl.viewport(0, 0, fboW, fboH);
   gl.disable(gl.BLEND);
   gl.useProgram(pSea); commonUniforms(pSea, t);
-  gl.uniform2f(pSea.u.uFbo, fboW, fboH); gl.uniform1f(pSea.u.uPx, fboW / W); gl.uniform1f(pSea.u.uCalm, 0.55); gl.uniform1f(pSea.u.uRain, RAIN * Math.pow(rainAmt, 0.7)); gl.uniform1i(pSea.u.uRainL, LOW ? 1 : 3);
+  gl.uniform2f(pSea.u.uFbo, fboW, fboH); gl.uniform1f(pSea.u.uPx, fboW / W); gl.uniform1f(pSea.u.uCalm, 0.18); gl.uniform1f(pSea.u.uRain, RAIN * Math.pow(rainAmt, 0.7)); gl.uniform1i(pSea.u.uRainL, LOW ? 1 : 3);
   gl.bindVertexArray(vaoFull); gl.drawArrays(gl.TRIANGLES, 0, 3);
   // 2) 화면으로 복사
   gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, glc.width, glc.height);
@@ -1254,14 +1254,14 @@ function drawGL(t) {
 /* 바람장(월드 단위/s): 왼쪽→오른쪽으로 부는 한 방향 바람 + 이따금 돌풍 + 위치마다 다른 난류.
    앞뒤(Z) 성분은 거의 없음 — 카메라 쪽으로 불면 빗줄기가 한 점에서 퍼져 '앞으로 달리는' 느낌이 나기 때문.
    구름과 주된 파도 방향도 같은 바람을 따름 */
-let windVX = 3.2, windVZ = 0;
+let windVX = 1.1, windVZ = 0;
 function updateWind(t) {
-  const gust = 2.6 * Math.pow(Math.max(0, Math.sin(t * 0.21 + 0.7)), 6);
-  windVX = 3.2 + 1.2 * Math.sin(t * 0.061) + 0.7 * Math.sin(t * 0.19 + 1.1) + gust;
-  windVZ = 0.5 * Math.sin(t * 0.083 + 2.0);
+  const gust = 0.8 * Math.pow(Math.max(0, Math.sin(t * 0.13 + 0.7)), 6);
+  windVX = 1.1 + 0.4 * Math.sin(t * 0.041) + 0.2 * Math.sin(t * 0.11 + 1.1) + gust;
+  windVZ = 0.2 * Math.sin(t * 0.053 + 2.0);
 }
-const turbX = (X, Y, Z, t) => 1.1 * Math.sin(0.9 * X + 1.7 * Y + 1.3 * t) + 0.6 * Math.sin(1.9 * Z - 0.8 * t + X);
-const turbZ = (X, Y, Z, t) => 0.4 * Math.sin(1.1 * Z + 1.3 * Y - 1.1 * t) + 0.25 * Math.sin(2.3 * X + 0.7 * t);
+const turbX = (X, Y, Z, t) => 0.4 * Math.sin(0.9 * X + 1.7 * Y + 0.8 * t) + 0.2 * Math.sin(1.9 * Z - 0.5 * t + X);
+const turbZ = (X, Y, Z, t) => 0.15 * Math.sin(1.1 * Z + 1.3 * Y - 0.7 * t) + 0.1 * Math.sin(2.3 * X + 0.4 * t);
 
 // 배경 빗방울: 화면 전체 깊이(0.5~18)에 흩어져 각자 중력·바람·난류로 3D 운동
 const KCAP = 1600, KB = new Float32Array(KCAP * 8), rainS = [];
@@ -1278,7 +1278,7 @@ function spawnDrizzle(midi, lv) {
 }
 let impTok = 0;
 function updateStreaks(dt) {
-  impTok = Math.min(4, impTok + dt * (LOW ? 14 : 30));
+  impTok = Math.min(2, impTok + dt * (LOW ? 4 : 8));
   for (let i = rainS.length - 1; i >= 0; i--) {
     const s = rainS[i];
     const tx = windVX + turbX(s.X, s.Y, s.Z, simT), tz = windVZ + turbZ(s.X, s.Y, s.Z, simT);
@@ -1366,7 +1366,7 @@ const T0 = performance.now();
 function step(dt) {
   simT += dt;
   if (!manual) analyze(dt);
-  const target = analyser ? clamp(soundLvl / 5, 0, 1) : 0;   // 조용해지면 비가 그침
+  const target = analyser ? clamp(soundLvl / 8, 0, 1) : 0;   // 조용해지면 비가 그침
   rainAmt += (target - rainAmt) * (1 - Math.exp(-dt / (target > rainAmt ? 0.25 : 0.9)));
   updateWind(simT);
   for (let i = drops.length - 1; i >= 0; i--) { if (simT >= drops[i].tImp) { const d = drops[i]; drops.splice(i, 1); impact(d); } }
