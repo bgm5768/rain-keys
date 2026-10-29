@@ -270,7 +270,7 @@ void main(){
     float far=1.0-smoothstep(0.6*fp,2.4*fp,0.065);
     vec2 cell=floor(xz/max(fp*1.2,1e-4)); float tq=floor(uTime*14.0);
     vec2 nz=vec2(hash21(cell+tq*1.7),hash21(cell+tq*3.1+9.0))-0.5;
-    sl+=nz*0.11*far*uRain;
+    sl+=nz*0.11*far*min(uRain*1.5,1.0);
     vec3 v=normalize(vec3(X,-uHc,Z));
     vec3 n=normalize(vec3(-sl.x,1.0,-sl.y));
     vec3 r=reflect(v,n); r.y=abs(r.y);
@@ -326,16 +326,17 @@ void main(){
 }`;
 // 빗줄기: 셔터 동안 움직인 만큼 늘어난 가는 선. 뒤 배경의 빛을 굴절해 받아 밝게 보임
 const VS_STK = COMMON + `
-in vec2 aQ; in vec4 iA; in vec4 iB;
+in vec2 aQ; in vec4 iA; in vec4 iB;          // iA: 머리 위치 xyz, 폭(px)   iB: 불투명도, 속도 xyz
 out vec2 vUV; out vec2 vPx; flat out float vA;
+const float SHUTTER=0.008;                   // 셔터 1/125초 동안 움직인 궤적이 줄기로 찍힘
 vec2 pj(vec3 P){ float Z=max(P.z,0.05); return vec2(uCx+uF*P.x/Z, uY0+uF*(uHc-P.y)/Z); }
 void main(){
-  vec2 h=pj(iA.xyz), t=pj(iA.xyz+vec3(iB.z*iA.w,iA.w,0.0));
+  vec2 h=pj(iA.xyz), t=pj(iA.xyz-iB.yzw*SHUTTER);
   vec2 dir=t-h; float L=max(length(dir),1.0); dir/=L;
   vec2 nr=vec2(-dir.y,dir.x);
-  float w=iB.x, u=aQ.y*0.5+0.5;
+  float w=iA.w, u=aQ.y*0.5+0.5;
   vec2 p=h+dir*(u*(L+w)-w*0.5)+nr*aQ.x*w*0.5;
-  vUV=vec2(aQ.x,u); vPx=p; vA=iB.y;
+  vUV=vec2(aQ.x,u); vPx=p; vA=iB.x;
   gl_Position=vec4(p.x/uView.x*2.0-1.0, 1.0-p.y/uView.y*2.0, 0.0, 1.0);
 }`;
 const FS_STK = COMMON + `
@@ -559,12 +560,12 @@ window.addEventListener('resize', resize);
 const drops = [], parts = [], crowns = [], jets = [], craters = [], bubbles = [], floaters = [], flashes = [], timers = [], EV = [];
 const keyGlow = new Float32Array(128);
 let started = false, showKeys = true;
-let fallT = 0.3, sens = 0.5, ambAcc = 0, hitCount = 0;
+let fallT = 0.3, sens = 0.5, hitCount = 0;
 const hitLog = [];
 let simT = 0, fxT = 0;
 // 스플래시·파문의 시간 배속. 3이면 거의 실제 속도(이전 버전은 약 3배 슬로모션)
 const TSCALE = 3.0;
-const RAIN = 0.85;   // 수면에 떨어지는 배경 비의 밀도(0~1)
+const RAIN = 0.9;    // 소리가 가장 클 때 수면 전체 빗방울 파문의 밀도(0~1)
 const clk = () => performance.now() / 1000;
 function later(dt, fn) { timers.push({ t: dt, fn }); }
 const PCAP = () => LOW ? 450 : 1400;
@@ -594,7 +595,9 @@ let peakDb = -60;
 const HARM = [12, 19, 24, 28, 31, 34, 36];
 // [간격(반음), 기음 대비 n배음의 대략적 감쇠(dB)] — n = 2…12
 const HSH = [[12, 6], [19, 9], [24, 11], [28, 13], [31, 14], [34, 16], [36, 17], [38, 18], [40, 19], [41, 20], [42, 20], [43, 21]];
-const heldT = new Float64Array(NS).fill(-1e9);   // 반음별 마지막 트리거 시각
+const heldT = new Float64Array(NS).fill(-1e9);
+const drizAcc = new Float32Array(NS);
+let soundLvl = 0;   // 반음별 마지막 트리거 시각
 // 피아노 스펙트럼은 저음이 훨씬 강함 → 높은 음일수록 바닥 기준을 낮춰 공정하게(왼쪽 쏠림 방지)
 const tilt = s => Math.min(14, Math.max(0, s - 6) * 0.3);
 
@@ -636,6 +639,16 @@ function analyze(dt) {
   }
   // 피크가 한 프레임 사라져도 기준선이 끌려 내려가 재트리거되지 않도록 천천히 감쇠시킴
   for (let s = 0; s < NS; s++) if (L[s] < -100 && prevL[s] > -100) L[s] = prevL[s] - 45 * dt;
+  // 지속되는 음의 세기만큼 그 건반 자리에 잔비가 내림(크고 많은 소리일수록 굵은 비). 난수 비는 없음
+  let tot = 0;
+  for (let s = 0; s < NS; s++) {
+    const lv = L[s] > -100 ? clamp((L[s] - floorDb + tilt(s)) / 30, 0, 1) : 0;
+    if (lv <= 0) { drizAcc[s] = 0; continue; }
+    tot += lv;
+    drizAcc[s] += Math.pow(lv, 1.5) * (LOW ? 140 : 380) * dt;   // 빗방울은 0.05초 만에 화면을 지나가므로 초당 수백 개가 필요
+    while (drizAcc[s] >= 1) { drizAcc[s] -= 1; spawnDrizzle(MIN_MIDI + s, lv); }
+  }
+  soundLvl = tot;
   // 2) 반음별 온셋(기준선 대비 급상승)
   const T = lerp(10, 4, sens), base = 1 - Math.exp(-dt / 0.35);
   const cands = [];
@@ -713,11 +726,7 @@ function makeDrop(o) {
   const Z = o.Z, X = (sx - cx) * Z / f;
   const ys = o.startY !== undefined ? o.startY : -40;
   const Y0 = Math.max(hc * 0.6, hc - (ys - y0) * Z / f);
-  drops.push({ kind: o.kind, tImp: o.tImp, T: o.T, X, Z, Y0, sz: o.sz, e: o.e, hue: o.hue, midi: o.midi, slant: o.slant || 0 });
-}
-function spawnAmb() {
-  const T = rand(0.32, 0.6), sz = rand(0.18, 0.34);
-  makeDrop({ kind: 'amb', tImp: simT + 0.05 + T, T, Z: rand(2.4, 8.5), fracX: rand(0.02, 0.98), sz, e: sz, hue: rand(190, 230), midi: null });
+  drops.push({ kind: o.kind, tImp: o.tImp, T: o.T, X, Z, Y0, sz: o.sz, e: o.e, hue: o.hue, midi: o.midi, wx: windVX * 0.45, wz: windVZ * 0.45 });   // 큰 방울은 바람을 덜 탐
 }
 function spawnNote(s, str, tDet) {
   if (drops.length > 200) return;
@@ -726,7 +735,7 @@ function spawnNote(s, str, tDet) {
   const fracX = keyFrac(midi) + rand(-0.2, 0.2) * (isBlack(midi) ? 0.6 : 1) / KB_WHITES;   // 건반 폭 안에서 살짝만 흔들림
   const T = fallT * rand(0.95, 1.05);
   keyGlow[midi] = 1;   // 소리가 들린 순간 해당 건반이 켜짐
-  makeDrop({ kind: 'hit', tImp: simT + T, T, Z: rand(1.7, 4.2), fracX, sz, e: sz * rand(0.9, 1.15), hue: keyHue(midi), midi, slant: windX * 0.3 + rand(-0.01, 0.01), startY: showKeys ? KB_Y + KB_H : -40 });
+  makeDrop({ kind: 'hit', tImp: simT + T, T, Z: rand(1.7, 4.2), fracX, sz, e: sz * rand(0.9, 1.15), hue: keyHue(midi), midi, startY: showKeys ? KB_Y + KB_H : -40 });
   hitCount++; hitLog.push({ midi, t: tDet || clk() }); if (hitLog.length > 2000) hitLog.shift();
 }
 
@@ -842,7 +851,7 @@ function splash(X, Z, e, hue, wind, force) {
   const depth = { dimple: 0.45, bubble: 0.55, jet: 0.8, crown: 1, bigcrown: 1.2, cavity: 1.6 }[reg];
   const sc = rand(0.85, 1.15);
   // 파문: 주 파문 + 공동 붕괴 때의 두 번째 파문
-  ripple(X, Z, (0.0006 + 0.0011 * e) * depth * sc, (0.55 + 0.45 * e) * (0.7 + 0.3 * depth));
+  ripple(X, Z, (0.0006 + 0.0011 * e) * depth * sc * 1.6, (0.55 + 0.45 * e) * (0.7 + 0.3 * depth));
   ripple(X, Z, (0.0003 + 0.0006 * e) * depth, (0.4 + 0.3 * e), rand(0.12, 0.2));
   flashes.push({ X, Z, t: 0, e, hue });
   const Rc = (0.03 + 0.03 * e) * (0.6 + 0.5 * depth) * sc;
@@ -866,17 +875,17 @@ function splash(X, Z, e, hue, wind, force) {
     if (reg === 'cavity' && Math.random() < 0.5) later(tc * 1.4, () => bubbles.push({ X: X + rand(-0.02, 0.02), Z: Z + rand(-0.02, 0.02), r: rand(0.008, 0.016), t: 0, life: rand(0.4, 1.0), hue, vx: rand(-0.04, 0.04), vz: rand(-0.04, 0.04) }));
   }
 }
+// 작은 빗방울 하나의 착수: 파문 + 얕은 분화구 + 가끔 미세 방울·작은 물기둥·기포
+function impactAt(X, Z, e) {
+  ripple(X, Z, 0.00045 * (0.6 + e * 2), 0.35 + e);
+  newCrater(X, Z, 0.012 + 0.02 * e, 0.4, 210);
+  if (Math.random() < 0.6) emit(X, Z, 1 + ((Math.random() * 2) | 0), { sp: 0.5, rs: 0.45, hue: 210, elMin: 0.6 });
+  if (Math.random() < 0.2) jets.push(newJet(X, Z, 0.25, 210, 0.1, { vy: 0.55, w: 0.5 }));
+  else if (Math.random() < 0.08) later(0.1, () => bubbles.push({ X, Z, r: rand(0.008, 0.016), t: 0, life: rand(0.5, 1.5), hue: 210, vx: rand(-0.02, 0.02), vz: rand(-0.02, 0.02) }));
+}
 function impact(d) {
-  if (d.kind === 'amb') {
-    const e = d.sz;
-    ripple(d.X, d.Z, 0.00045 * (0.6 + e * 2), 0.35 + e);
-    newCrater(d.X, d.Z, 0.012 + 0.02 * e, 0.4, d.hue);
-    emit(d.X, d.Z, 1 + ((Math.random() * 3) | 0), { sp: 0.5, rs: 0.45, hue: d.hue, elMin: 0.6 });
-    if (Math.random() < 0.25) jets.push(newJet(d.X, d.Z, 0.25, d.hue, 0.1, { vy: 0.55, w: 0.5 }));
-    else if (Math.random() < 0.15) later(0.1, () => bubbles.push({ X: d.X, Z: d.Z, r: rand(0.008, 0.016), t: 0, life: rand(0.5, 1.5), hue: d.hue, vx: rand(-0.02, 0.02), vz: rand(-0.02, 0.02) }));
-    return;
-  }
-  splash(d.X, d.Z, d.e, d.hue, d.slant * 2.5);
+  if (d.kind === 'amb') { impactAt(d.X, d.Z, d.sz); return; }
+  splash(d.X, d.Z, d.e, d.hue, d.wx * 0.5);
 }
 
 /* ======================================================================
@@ -1160,7 +1169,7 @@ function drawGL(t) {
   for (const d of drops) {
     const u = (simT - (d.tImp - d.T)) / d.T; if (u < 0 || u >= 1) continue;
     const Y = d.Y0 * (1 - u * u);
-    if (d.kind === 'hit') sph(d.X + d.slant * Y, Y, d.Z, 0.0055 * (0.6 + d.sz * 0.6), d.hue, 1, 0);
+    if (d.kind === 'hit') { const q = dropState(d, u); sph(q.X, q.Y, q.Z, 0.0055 * (0.6 + d.sz * 0.6), d.hue, 1, 0); }
   }
   const nReal = nS;
   // 거울상(수면 반사) 인스턴스
@@ -1175,7 +1184,7 @@ function drawGL(t) {
   gl.bindFramebuffer(gl.FRAMEBUFFER, fbo); gl.viewport(0, 0, fboW, fboH);
   gl.disable(gl.BLEND);
   gl.useProgram(pSea); commonUniforms(pSea, t);
-  gl.uniform2f(pSea.u.uFbo, fboW, fboH); gl.uniform1f(pSea.u.uPx, fboW / W); gl.uniform1f(pSea.u.uCalm, 0.2); gl.uniform1f(pSea.u.uRain, RAIN); gl.uniform1i(pSea.u.uRainL, LOW ? 1 : 3);
+  gl.uniform2f(pSea.u.uFbo, fboW, fboH); gl.uniform1f(pSea.u.uPx, fboW / W); gl.uniform1f(pSea.u.uCalm, 0.2); gl.uniform1f(pSea.u.uRain, RAIN * Math.pow(rainAmt, 0.7)); gl.uniform1i(pSea.u.uRainL, LOW ? 1 : 3);
   gl.bindVertexArray(vaoFull); gl.drawArrays(gl.TRIANGLES, 0, 3);
   // 2) 화면으로 복사
   gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, glc.width, glc.height);
@@ -1218,34 +1227,63 @@ function drawGL(t) {
   gl.disable(gl.BLEND);
   gl.bindVertexArray(null);
 }
-// 배경 빗줄기: 화면 전체 깊이에 흩어진 빗방울. 약 6.5m/s로 떨어지고, 셔터(약 1/220초) 동안 움직인 만큼 늘어나 보임
-const KCAP = 1600, KB = new Float32Array(KCAP * 8), rainS = [];
-const STK_N = () => LOW ? 220 : 600;
-function newStreak(s, init) {
-  const Z = 0.9 + Math.pow(Math.random(), 1.5) * 16;
-  s.Z = Z; s.X = (rand(-0.05, 1.05) * W - cx) * Z / f;
-  const top = hc + (y0 + 30) * Z / f;
-  s.Y = init ? rand(0, top) : top + rand(0, 0.4 * top);
-  s.v = rand(30, 38);
+/* 바람장(월드 단위/s): 천천히 바뀌는 바람 + 이따금 돌풍 + 위치마다 다른 난류.
+   X는 좌우, Z는 앞뒤(음수면 카메라 쪽으로 불어옴) */
+let windVX = 0, windVZ = -2;
+function updateWind(t) {
+  const gust = 2.6 * Math.pow(Math.max(0, Math.sin(t * 0.21 + 0.7)), 6);
+  windVX = 3.4 * Math.sin(t * 0.061) + 1.6 * Math.sin(t * 0.19 + 1.1) + gust;
+  windVZ = -5.0 + 2.2 * Math.sin(t * 0.083 + 2.0) - gust * 0.8;
 }
+const turbX = (X, Y, Z, t) => 1.1 * Math.sin(0.9 * X + 1.7 * Y + 1.3 * t) + 0.6 * Math.sin(1.9 * Z - 0.8 * t + X);
+const turbZ = (X, Y, Z, t) => 0.9 * Math.sin(1.1 * Z + 1.3 * Y - 1.1 * t) + 0.5 * Math.sin(2.3 * X + 0.7 * t);
+
+// 배경 빗방울: 화면 전체 깊이(0.5~18)에 흩어져 각자 중력·바람·난류로 3D 운동
+const KCAP = 1600, KB = new Float32Array(KCAP * 8), rainS = [];
+let rainAmt = 0;                                     // 소리 크기에 따른 비의 양(0~1)
+// 지속음의 잔비 한 방울: 그 건반 자리(±1.5건반)로 떨어지도록 출발 위치를 바람만큼 거슬러 잡음. 깊이(Z)는 앞뒤로 흩어짐
+function spawnDrizzle(midi, lv) {
+  if (rainS.length >= KCAP - 60) return;
+  const Z = 0.6 + Math.pow(Math.random(), 1.3) * 15;
+  const fx = keyFrac(midi) + rand(-0.75, 0.75) * 1.5 / KB_WHITES;
+  const top = hc + ((showKeys ? KB_Y + KB_H : -20) * -1 + y0) * Z / f;
+  const vy = -rand(28, 38), tf = top / -vy;
+  rainS.push({ X: (fx * W - cx) * Z / f - windVX * tf, Y: top, Z: Math.max(0.5, Z - windVZ * tf), vx: windVX, vy, vz: windVZ, r: 0.5 + 0.9 * lv * Math.random() });
+}
+let impTok = 0;
 function updateStreaks(dt) {
-  const n = STK_N();
-  while (rainS.length < n) { const s = {}; newStreak(s, true); rainS.push(s); }
-  if (rainS.length > n) rainS.length = n;
-  for (const s of rainS) { s.Y -= s.v * dt; s.X += windX * 0.25 * s.v * dt; if (s.Y < 0) newStreak(s, false); }
+  impTok = Math.min(4, impTok + dt * (LOW ? 14 : 30));
+  for (let i = rainS.length - 1; i >= 0; i--) {
+    const s = rainS[i];
+    const tx = windVX + turbX(s.X, s.Y, s.Z, simT), tz = windVZ + turbZ(s.X, s.Y, s.Z, simT);
+    const k = 1 - Math.exp(-dt * 4 / s.r);           // 작은 방울일수록 바람을 빨리 따라감(공기 저항)
+    s.vx += (tx - s.vx) * k; s.vz += (tz - s.vz) * k;
+    s.X += s.vx * dt; s.Y += s.vy * dt; s.Z += s.vz * dt;
+    let gone = s.Z < 0.4 || s.Z > 19;
+    if (s.Y <= 0) {
+      gone = true;
+      if (s.Z > 0.8 && s.Z < 4 && impTok >= 1) { impTok -= 1; impactAt(s.X, s.Z, 0.1 + 0.12 * s.r); }   // 가까운 방울은 떨어진 자리에 파문(초당 최대 약 30개)
+    }
+    if (gone) { rainS[i] = rainS[rainS.length - 1]; rainS.pop(); }
+  }
+}
+// 음표 방울의 3D 위치·속도: 떨어지는 동안 바람에 밀리되, 착수 지점(건반 자리)은 그대로
+function dropState(d, u) {
+  const rem = (1 - u) * d.T, sp = 2 * d.Y0 * u / d.T;
+  return { X: d.X - d.wx * rem, Y: d.Y0 * (1 - u * u), Z: d.Z - d.wz * rem, vx: d.wx, vy: -sp, vz: d.wz };
 }
 function fillStreaks() {
   let k = 0;
-  const put = (x, y, z, len, w, a, sl) => { if (k >= KCAP) return; const o = k * 8; KB[o] = x; KB[o + 1] = y; KB[o + 2] = z; KB[o + 3] = len; KB[o + 4] = w; KB[o + 5] = a; KB[o + 6] = sl; KB[o + 7] = 0; k++; };
+  const put = (x, y, z, w, a, vx, vy, vz) => { if (k >= KCAP) return; const o = k * 8; KB[o] = x; KB[o + 1] = y; KB[o + 2] = z; KB[o + 3] = w; KB[o + 4] = a; KB[o + 5] = vx; KB[o + 6] = vy; KB[o + 7] = vz; k++; };
   for (const s of rainS) {
-    const w = clamp(f * 0.006 / s.Z, 0.6, 5);
-    put(s.X, s.Y, s.Z, s.v * 0.008, w, 0.38 * clamp(1.3 / w, 0.22, 1) * (1 - sstep(10, 17, s.Z) * 0.6), windX * 0.25);
+    // 초점(약 2.9) 밖 가까운 방울은 흐리고 넓게(카메라 피사계 심도)
+    const w = clamp(f * 0.0055 * s.r / s.Z, 0.6, 4) + Math.max(0, 1 / s.Z - 0.55) * 10;
+    put(s.X, s.Y, s.Z, w, 0.4 * clamp(1.3 / w, 0.15, 1) * (1 - sstep(11, 18, s.Z) * 0.6), s.vx, s.vy, s.vz);
   }
   for (const d of drops) {
     const u = (simT - (d.tImp - d.T)) / d.T; if (u < 0 || u >= 1) continue;
-    const Y = d.Y0 * (1 - u * u), sp = 2 * d.Y0 * u / d.T;
-    const hit = d.kind === 'hit';
-    put(d.X + d.slant * Y, Y, d.Z, clamp(sp * 0.03, 0.02, 0.3), Math.max(hit ? 1.4 : 0.8, f * (hit ? 0.0055 : 0.004) * (0.6 + d.sz * 0.6) / d.Z), hit ? 0.45 : 0.3, d.slant);
+    const q = dropState(d, u), hit = d.kind === 'hit';
+    put(q.X, q.Y, q.Z, Math.max(hit ? 1.8 : 0.8, f * (hit ? 0.0065 : 0.004) * (0.6 + d.sz * 0.6) / q.Z), hit ? 0.75 : 0.35, q.vx, Math.min(q.vy, -6), q.vz);
   }
   return k;
 }
@@ -1300,8 +1338,9 @@ const T0 = performance.now();
 function step(dt) {
   simT += dt;
   if (!manual) analyze(dt);
-  ambAcc += (LOW ? 5 : 9) * dt;
-  while (ambAcc >= 1) { ambAcc -= 1; spawnAmb(); }
+  const target = analyser ? clamp(soundLvl / 5, 0, 1) : 0;   // 조용해지면 비가 그침
+  rainAmt += (target - rainAmt) * (1 - Math.exp(-dt / (target > rainAmt ? 0.25 : 0.9)));
+  updateWind(simT);
   for (let i = drops.length - 1; i >= 0; i--) { if (simT >= drops[i].tImp) { const d = drops[i]; drops.splice(i, 1); impact(d); } }
   fxT += dt * TSCALE;
   updateFx(dt * TSCALE);
@@ -1368,9 +1407,9 @@ autoStart();
 // 테스트용 훅
 window.RK = {
   splash: (fx, Z, e, reg) => { const X = (fx * W - cx) * Z / f; splash(X, Z, e, 200, 0, reg); },
-  spawnNote, hitLog, get capT0() { return capT0; }, get started() { return started; }, get hits() { return hitCount; }, get gl() { return glReady; }, get fps() { return fps; },
+  spawnNote, drizzle: (m, lv) => spawnDrizzle(m, lv), hitLog, get capT0() { return capT0; }, get started() { return started; }, get hits() { return hitCount; }, get gl() { return glReady; }, get fps() { return fps; },
   manual(on) { manual = on; }, step(n, dt) { for (let i = 0; i < n; i++) step(dt); draw(); },
-  clear() { drops.length = parts.length = crowns.length = jets.length = craters.length = bubbles.length = floaters.length = flashes.length = timers.length = EV.length = 0; ambAcc = -1e9; },
+  clear() { drops.length = parts.length = crowns.length = jets.length = craters.length = bubbles.length = floaters.length = flashes.length = timers.length = EV.length = 0; rainS.length = 0; },
   dump: () => ({ jets: jets.map(j => [+j.t.toFixed(2), +jetLen(j).toFixed(3), j.det, +j.vy.toFixed(2)]), crowns: crowns.map(c => [+c.t.toFixed(2), c.life.toFixed(2)]), craters: craters.length, bub: bubbles.length, drops: drops.length, parts: parts.filter(p => !(p.Y > -1 && p.Y < 5)).length }),
   counts: () => ({ parts: parts.length, crowns: crowns.length, jets: jets.length, ev: EV.length, nF, nN, nC, nS })
 };
