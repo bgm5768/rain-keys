@@ -129,11 +129,12 @@
     <div class="steps" id="fallS"></div>
   </div>
   <div class="sec">
+    <div class="row"><span>환경음 <span class="tip" tabindex="0" data-tip="빗소리와 배경에 맞는 물소리(호수 찰랑임, 파도, 도시의 웅웅거림)를 들려줘요. 빗소리는 화면의 비가 굵어질수록 커져요. 이 소리는 분석에 섞이지 않게 막아 둬요(마이크로 들을 때는 스피커 대신 이어폰을 권해요).">i</span></span><label class="sw"><input id="amb" type="checkbox"><span></span></label></div>
     <div class="row"><span>건반 표시</span><label class="sw"><input id="keys" type="checkbox" checked><span></span></label></div>
     <div class="row"><span>저사양 <span class="tip" tabindex="0" data-tip="입자 수와 해상도를 낮춰 느린 기기에서도 부드럽게 움직여요. 느려지면 자동으로 켜져요.">i</span></span><label class="sw"><input id="low" type="checkbox"><span></span></label></div>
     <button class="btn" id="saverBtn" title="Windows 화면보호기로 등록하고 설정 창을 열어요" hidden>🌧 화면보호기로 설정</button>
   </div>
-  <div class="keys">H 화면만 보기 · F 전체화면 · S 설정</div>
+  <div class="keys">H 화면만 보기 · F 전체화면 · S 설정 · A 환경음</div>
 </div>
 <div id="toast" class="glass off"></div>
 
@@ -554,7 +555,7 @@ vec3 sky(vec3 d){
     float cs=fbm(cp+normalize(uSunD.xz+vec2(0.0,1e-4))*0.12);        // 해 쪽으로 옮긴 곳이 더 얇으면 그쪽 면이 밝음
     float s=smoothstep(0.3,0.75,cl), hz=1.0-smoothstep(0.0,0.35,e);
     float cov=clamp((cl-(0.62-0.4*uCover))/0.14,0.0,1.0);
-    c+=celestial(d)*(1.0-cov*0.92);
+    c+=celestial(d)*(1.0-cov*0.6);                                 // 얇은 구름 띠가 달·별을 줄무늬처럼 끊지 않게 반쯤만 가림
     c*=mix(1.0,mix(0.72+0.6*s,0.9+0.12*s,uDay),uCover);              // 밤: 도시 불빛에 구름 밑이 밝음, 낮: 회색 구름(하늘보다 살짝만 밝게)
     c+=uCld*hz*s+uSunC*0.12*pow(sd,6.0)*s*uCover;
     c*=1.0+clamp((cl-cs)*2.5,-0.3,0.35)*s*uCover*(0.4+0.6*uDay);
@@ -1223,7 +1224,7 @@ async function startCapture(kind) {
       const mac = /Mac/.test(navigator.platform || navigator.userAgent);
       stream = await navigator.mediaDevices.getDisplayMedia({
         video: { displaySurface: mac ? 'browser' : 'monitor', frameRate: { ideal: 1, max: 5 }, width: { max: 640 } },
-        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, suppressLocalAudioPlayback: false },
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, suppressLocalAudioPlayback: false, restrictOwnAudio: true },   // 이 페이지의 환경음은 빼고 들음
         systemAudio: 'include', windowAudio: 'system', monitorTypeSurfaces: 'include', surfaceSwitching: 'exclude', selfBrowserSurface: 'exclude'
       });
       if (!stream.getAudioTracks().length) { stream.getTracks().forEach(t => t.stop()); stream = null; throw new Error('NOAUDIO'); }
@@ -1842,7 +1843,7 @@ function frame(ts) {
     if (slowSec >= 3 && !LOW) { LOW = true; $('low').checked = true; resize(); }
   }
   if (!manual) { step(Math.min(0.05, rdt)); draw(); }
-  updateSrc(); drawDial(rdt);
+  updateSrc(); drawDial(rdt); updateAmb(rdt);
   requestAnimationFrame(frame);
 }
 
@@ -1850,10 +1851,89 @@ function frame(ts) {
 const card = $('card'), gear = $('gear');
 // 설정은 이 브라우저에만 저장(없어도 기본값으로 동작)
 const PREF = 'rainkeys.prefs';
-function savePrefs() { try { localStorage.setItem(PREF, JSON.stringify({ sens, fallT, showKeys, scene: SCENE.id, bg: BG.id, tod: TOD.id })); } catch (e) {} }
+/* ---------- 환경음: 빗소리 + 배경마다 다른 물소리(호수 찰랑임 · 파도 · 도시 웅웅거림). 녹음 파일 없이 즉석 합성 ----------
+   빗소리 크기는 화면의 비(음악)에 따라 커지고 작아짐. 이 소리는 분석하는 소리에 섞이지 않게 함(공유 설정의 restrictOwnAudio) */
+const AMBP = {
+  neon: { water: 0.22, lfo: 0.23, wash: 0, hum: 0 },            // 호숫가 물가에 찰랑이는 소리
+  city: { water: 0.12, lfo: 0.2, wash: 0, hum: 0.22 },          // 멀리서 들리는 도시의 낮은 웅웅거림
+  lighthouse: { water: 0.9, lfo: 0.085, wash: 0.035, hum: 0 },  // 약 12초마다 밀려왔다 빠지는 파도
+  aurora: { water: 0.18, lfo: 0.18, wash: 0, hum: 0 }
+};
+let amb = null, ambOn = false, ambT = 0, ambOff = 0;
+function noiseBuf(ctx, sec, brown) {
+  const n = Math.floor(ctx.sampleRate * sec), b = ctx.createBuffer(2, n, ctx.sampleRate);
+  for (let ch = 0; ch < 2; ch++) {
+    const d = b.getChannelData(ch); let last = 0;
+    for (let i = 0; i < n; i++) { const w = Math.random() * 2 - 1; if (brown) { last = (last + 0.02 * w) / 1.02; d[i] = last * 3.5; } else d[i] = w; }
+  }
+  return b;
+}
+// 빗방울이 하나하나 '톡' 떨어지는 소리를 무작위로 깔아 둔 반복 소리(좌우로 흩어짐, 크기 제각각)
+function patterBuf(ctx, sec, rate) {
+  const sr = ctx.sampleRate, n = Math.floor(sr * sec), b = ctx.createBuffer(2, n, sr);
+  const L = b.getChannelData(0), R = b.getChannelData(1);
+  for (let k = 0; k < rate * sec; k++) {
+    const t0 = Math.floor(Math.random() * n), len = Math.floor(sr * (0.003 + Math.random() * 0.01));
+    const a = Math.pow(Math.random(), 2.2) * 0.6, pan = Math.random();
+    for (let i = 0; i < len; i++) {
+      const v = a * (Math.random() * 2 - 1) * Math.exp(-i / (len * 0.22)), j = (t0 + i) % n;
+      L[j] += v * (1 - pan); R[j] += v * pan;
+    }
+  }
+  return b;
+}
+function initAmb() {
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  const out = ctx.createGain(); out.gain.value = 0; out.connect(ctx.destination);
+  const loop = (buf, rate) => { const s = ctx.createBufferSource(); s.buffer = buf; s.loop = true; if (rate) s.playbackRate.value = rate; s.start(); return s; };
+  const filt = (type, fr, q) => { const x = ctx.createBiquadFilter(); x.type = type; x.frequency.value = fr; if (q) x.Q.value = q; return x; };
+  const gain = v => { const g = ctx.createGain(); g.gain.value = v; return g; };
+  const chain = (...n) => { for (let i = 0; i < n.length - 1; i++) n[i].connect(n[i + 1]); return n[n.length - 1]; };
+  const white = noiseBuf(ctx, 3, false), brown = noiseBuf(ctx, 5, true);
+  // 비: '쏴—' 하는 바탕 + 톡톡 떨어지는 소리
+  const rain = gain(0); rain.connect(out);
+  chain(loop(white), filt('highpass', 500), filt('lowpass', 6500), gain(0.045), rain);
+  chain(loop(patterBuf(ctx, 4, 260)), filt('highpass', 900), filt('lowpass', 9000), gain(0.8), rain);
+  // 물: 낮은 소리의 크기가 천천히 오르내림(호수는 빠르고 작게 찰랑, 바다는 느리고 크게 밀려옴) + 파도 끝의 '쏴'
+  const water = gain(0); water.connect(out);
+  const swell = gain(0.5); chain(loop(brown), filt('lowpass', 420), swell, water);
+  const lfo = ctx.createOscillator(), lfoG = gain(0.45); lfo.frequency.value = 0.2; lfo.connect(lfoG); lfoG.connect(swell.gain); lfo.start();
+  const wash = gain(0); chain(loop(white, 0.7), filt('bandpass', 1100, 0.5), wash, water);
+  const lfoW = gain(0); lfo.connect(lfoW); lfoW.connect(wash.gain);
+  // 도시: 멀리서 들리는 낮은 웅웅거림
+  const hum = gain(0); chain(loop(brown, 0.6), filt('lowpass', 180), hum, out);
+  return { ctx, out, rain, water, wash, lfo, lfoW, hum };
+}
+function setAmb(on) {
+  ambOn = on; $('amb').checked = on;
+  if (on && !amb) { try { amb = initAmb(); } catch (e) { ambOn = false; $('amb').checked = false; return; } }
+  if (amb && on && amb.ctx.state !== 'running') amb.ctx.resume().catch(() => {});
+  ambT = 0;
+}
+function updateAmb(dt) {
+  if (!amb) return;
+  ambT -= dt; if (ambT > 0) return; ambT = 0.25;
+  const t = amb.ctx.currentTime, p = AMBP[BG.id] || AMBP.neon;
+  amb.out.gain.setTargetAtTime(ambOn ? 1.4 : 0, t, ambOn ? 0.8 : 0.35);
+  amb.rain.gain.setTargetAtTime(0.35 + 0.65 * rainAmt, t, 0.6);
+  amb.water.gain.setTargetAtTime(p.water, t, 1.5); amb.hum.gain.setTargetAtTime(p.hum, t, 1.5);
+  amb.lfo.frequency.setTargetAtTime(p.lfo, t, 1.5); amb.wash.gain.setTargetAtTime(p.wash, t, 1.5); amb.lfoW.gain.setTargetAtTime(p.wash, t, 1.5);
+  // 끈 뒤 소리가 다 줄어들면 오디오를 멈춰 CPU를 아낌
+  ambOff = ambOn ? 0 : ambOff + 0.25;
+  if (ambOff > 2 && amb.ctx.state === 'running') amb.ctx.suspend().catch(() => {});
+}
+$('amb').addEventListener('change', e => { setAmb(e.target.checked); savePrefs(); });
+// 저장된 설정이 '켬'이면 첫 클릭·키 입력 때 시작(브라우저는 사용자 조작 전 소리를 막음)
+function ambFirstGesture(ev) {
+  ['pointerdown', 'keydown'].forEach(ev => window.removeEventListener(ev, ambFirstGesture));
+  if (ev && ev.type === 'keydown' && ev.key.toLowerCase() === 'a') { ambOn = false; return; }   // A 키는 아래 단축키가 켜 줌
+  if (ambOn) setAmb(true);
+}
+function savePrefs() { try { localStorage.setItem(PREF, JSON.stringify({ sens, fallT, showKeys, scene: SCENE.id, bg: BG.id, tod: TOD.id, amb: ambOn })); } catch (e) {} }
 try {
   const p = JSON.parse(localStorage.getItem(PREF) || 'null');
-  if (p) { if (p.sens >= 0 && p.sens <= 1) sens = p.sens; if (p.fallT >= 0.1 && p.fallT <= 0.8) fallT = p.fallT; if (typeof p.showKeys === 'boolean') showKeys = p.showKeys; if (p.scene) setScene(p.scene); if (p.bg) setBg(p.bg); if (p.tod) setTod(p.tod); }
+  if (p) { if (p.sens >= 0 && p.sens <= 1) sens = p.sens; if (p.fallT >= 0.1 && p.fallT <= 0.8) fallT = p.fallT; if (typeof p.showKeys === 'boolean') showKeys = p.showKeys; if (p.scene) setScene(p.scene); if (p.bg) setBg(p.bg); if (p.tod) setTod(p.tod);
+    if (p.amb) { ambOn = true; $('amb').checked = true; ['pointerdown', 'keydown'].forEach(ev => window.addEventListener(ev, ambFirstGesture)); } }
 } catch (e) {}
 // 주소의 ?scene= ?bg= ?time= 이 저장값보다 우선(예전 /v1/ 주소는 ?scene=lively 로 옴)
 const QS = new URLSearchParams(location.search);
@@ -1972,6 +2052,7 @@ window.addEventListener('keydown', e => {
   else if (k === 'f') toggleFs();
   else if (k === 's') openCard(card.hidden);
   else if (k === 'escape') openCard(false);
+  else if (k === 'a') { setAmb(!ambOn); savePrefs(); toast(ambOn ? '환경음 켬' : '환경음 끔'); }
 });
 const canSys = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) && !window.matchMedia('(pointer:coarse)').matches;
 if (HOST) $('sysnote').textContent = '이 앱은 기기에서 나오는 모든 소리를 공유 창이나 마이크 권한 없이 바로 들어요. 소리는 그대로 들리고 분석만 합니다.';
@@ -2037,7 +2118,7 @@ autoStart();
 // 테스트용 훅
 window.RK = {
   splash: (fx, Z, e, reg) => { const X = (fx * W - cx) * Z / f; splash(X, Z, e, 200, 0, reg); },
-  beam, spawnNote, drizzle: (m, lv) => spawnDrizzle(m, lv), hitLog, get capT0() { return capT0; }, get started() { return started; }, get hits() { return hitCount; }, get gl() { return glReady; }, get fps() { return fps; },
+  beam, get amb() { return amb; }, spawnNote, drizzle: (m, lv) => spawnDrizzle(m, lv), hitLog, get capT0() { return capT0; }, get started() { return started; }, get hits() { return hitCount; }, get gl() { return glReady; }, get fps() { return fps; },
   manual(on) { manual = on; }, step(n, dt) { for (let i = 0; i < n; i++) step(dt); draw(); },
   clear() { drops.length = parts.length = crowns.length = jets.length = craters.length = bubbles.length = floaters.length = flashes.length = timers.length = EV.length = 0; rainS.length = 0; },
   dump: () => ({ jets: jets.map(j => [+j.t.toFixed(2), +jetLen(j).toFixed(3), j.det, +j.vy.toFixed(2)]), crowns: crowns.map(c => [+c.t.toFixed(2), c.life.toFixed(2)]), craters: craters.length, bub: bubbles.length, drops: drops.length, parts: parts.filter(p => !(p.Y > -1 && p.Y < 5)).length }),
