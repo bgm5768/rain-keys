@@ -17,7 +17,7 @@
   #dock{position:fixed;right:max(16px,env(safe-area-inset-right));bottom:max(16px,env(safe-area-inset-bottom));display:flex;gap:8px;z-index:6;transition:opacity .6s}
   #dock button{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;color:#e4eeff;font-size:17px;cursor:pointer;padding:0;position:relative;opacity:.72;transition:opacity .2s,background .2s}
   #dock button:hover,#dock button[aria-expanded=true]{opacity:1;background:rgba(40,52,100,.75)}
-  /* 입력 상태: 볼륨 버튼처럼 보이지 않게 점 + 글자(듣는 중 / 소리 연결) */
+  /* 입력 버튼: 볼륨 버튼처럼 보이지 않게 점 + '소리 연결'(점이 소리 크기만큼 빛남) */
   #dock #src{width:auto;border-radius:20px;padding:0 14px 0 12px;display:flex;gap:7px;font:inherit;font-size:12.5px;white-space:nowrap}
   #dock #src i{width:8px;height:8px;border-radius:50%;background:#4b5372;transition:background .1s,box-shadow .1s;flex:none}
   body.idle #dock,body.hideui #dock{opacity:0;pointer-events:none}
@@ -131,7 +131,7 @@
     <button id="btnSys" class="big">💻 기기 소리 연결</button>
     <button id="btnMic" class="big alt">🎤 마이크로 듣기</button>
   </div>
-  <p class="note" id="sysnote">PC(Chrome·Edge)에서 공유 창이 뜨면 <b>'전체 화면'(Windows) 또는 '탭'</b>을 고르고 <b>오디오 공유</b>를 체크하세요.<br>Windows는 전체 화면 선택 시 기기의 모든 소리가, macOS는 탭 소리만 잡혀요. 소리는 그대로 들리고 이 페이지는 분석만 합니다.</p>
+  <p class="note" id="sysnote">공유 창이 뜨면 화면을 고르고 <b>'공유'</b>만 누르세요. 전체 화면과 오디오 공유가 미리 골라져 있어요.<br>Windows는 기기의 모든 소리, macOS는 고른 탭의 소리를 들어요. 소리는 그대로 들리고 이 페이지는 분석만 합니다.</p>
   <div id="msg" class="msg"></div>
 </div>
 <div id="tap" hidden>🎤 화면을 한 번 눌러 주세요 · 소리 분석을 시작해요</div>
@@ -900,9 +900,13 @@ async function startCapture(kind) {
   showMsg(''); stopCapture(false);
   try {
     if (kind === 'system') {
+      // 공유 창이 처음부터 알맞은 쪽(Windows: 전체 화면 = 기기의 모든 소리, macOS: 탭)에 열리고 오디오 공유가 켜진 채로 뜨게 함
+      // → 보통은 화면을 고르고 '공유'만 누르면 됨. 화면 영상은 쓰지 않으므로 초당 1장으로 최소화
+      const mac = /Mac/.test(navigator.platform || navigator.userAgent);
       stream = await navigator.mediaDevices.getDisplayMedia({
-        video: true, audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
-        systemAudio: 'include', selfBrowserSurface: 'exclude'
+        video: { displaySurface: mac ? 'browser' : 'monitor', frameRate: { ideal: 1, max: 5 }, width: { max: 640 } },
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, suppressLocalAudioPlayback: false },
+        systemAudio: 'include', windowAudio: 'system', monitorTypeSurfaces: 'include', surfaceSwitching: 'exclude', selfBrowserSurface: 'exclude'
       });
       if (!stream.getAudioTracks().length) { stream.getTracks().forEach(t => t.stop()); stream = null; throw new Error('NOAUDIO'); }
       if (HOST) stream.getVideoTracks().forEach(t => t.stop());   // 앱은 화면 영상이 필요 없음(루프백 소리만 씀)
@@ -929,6 +933,8 @@ async function startCapture(kind) {
   stream.getTracks().forEach(t => t.addEventListener('ended', () => { if (stream) { showMsg('소리 공유가 끝났어요.'); stopCapture(true); } }));
   capT0 = clk(); hitLog.length = 0;
   capKind = kind; started = true; overlay.classList.add('hide');
+  // 브라우저의 '공유 중' 막대는 페이지가 지울 수 없음 → 전체화면이면 가려진다고 알려 줌
+  if (kind === 'system' && !HOST && !document.fullscreenElement) toast('전체화면(F)으로 보면 위쪽 공유 막대가 가려져요', 5000);
 }
 
 /* ======================================================================
@@ -1577,7 +1583,7 @@ gear.addEventListener('click', () => openCard(card.hidden));
 window.addEventListener('pointerdown', e => { if (!card.hidden && !card.contains(e.target) && !$('dock').contains(e.target)) openCard(false); });
 
 let toastT = 0;
-function toast(t) { const el = $('toast'); el.textContent = t; el.classList.remove('off'); clearTimeout(toastT); toastT = setTimeout(() => el.classList.add('off'), 2200); }
+function toast(t, ms) { const el = $('toast'); el.textContent = t; el.classList.remove('off'); clearTimeout(toastT); toastT = setTimeout(() => el.classList.add('off'), ms || 2200); }
 
 
 // 단축키: H 화면만 보기 · F 전체화면 · S 설정 · Esc 닫기
@@ -1612,7 +1618,6 @@ function updateSrc() {
   const dot = $('src').firstElementChild;
   dot.style.background = lv < 0 ? '#4b5372' : `rgba(${120 + 135 * lv | 0},${190 - 40 * lv | 0},255,1)`;
   dot.style.boxShadow = lv > 0.05 ? `0 0 ${4 + 8 * lv}px rgba(200,160,255,${lv})` : 'none';
-  $('src').lastElementChild.textContent = analyser ? '듣는 중' : '소리 연결';
   $('src').title = '소리 입력: ' + (!analyser ? '연결 안 됨' : capKind === 'mic' ? '마이크' : '기기 소리') + ' · 눌러서 다시 선택';
 }
 
