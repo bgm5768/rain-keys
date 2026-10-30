@@ -1,0 +1,51 @@
+{
+  "name": "rainkeys",
+  "productName": "Rain Keys",
+  "version": "0.1.0",
+  "description": "기기에서 나오는 소리의 음높이와 리듬대로 빗방울이 떨어지는 바다 · Windows 화면보호기",
+  "author": "bgm5768",
+  "license": "UNLICENSED",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "saver": "electron . --saver",
+    "build:scr": "cd native/win-scr && go build -trimpath -ldflags \"-H=windowsgui -s -w\" -o bin/RainKeys.scr .",
+    "dist": "npm run build:scr && electron-builder --win nsis",
+    "dist:dir": "npm run build:scr && electron-builder --win dir"
+  },
+  "build": {
+    "appId": "io.github.bgm5768.rainkeys",
+    "productName": "Rain Keys",
+    "executableName": "RainKeys",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js"
+    ],
+    "extraResources": [
+      {
+        "from": "../index.html",
+        "to": "web/index.html"
+      },
+      {
+        "from": "native/win-scr/bin/RainKeys.scr",
+        "to": "RainKeys.scr"
+      }
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "artifactName": "RainKeys-Setup-${version}.${ext}"
+    }
+  },
+  "devDependencies": {
+    "electron": "^45.1.0",
+    "electron-builder": "^26.18.0"
+  }
+}

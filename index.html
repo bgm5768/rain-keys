@@ -41,6 +41,9 @@
   #tap[hidden]{display:none}
   @keyframes pulse{50%{opacity:.55}}
   .msg{min-height:1.2em;color:#ffb4c4;font-size:13px;max-width:34em}
+  /* 데스크톱 앱의 화면보호기 모드: 조작 UI 없이 바다만 */
+  body.saver{cursor:none}
+  body.saver #panel,body.saver #overlay,body.saver #tap{display:none}
 </style>
 </head>
 <body>
@@ -60,6 +63,7 @@
   <label><input id="keys" type="checkbox" checked> 건반</label>
   <label title="입자 수·해상도를 낮춰 휴대폰에서 부드럽게"><input id="low" type="checkbox"> 저사양</label>
   <button id="fs" title="전체화면">⛶</button>
+  <button id="saverBtn" title="Windows 화면보호기로 등록하고 설정 창을 열어요" hidden>🌧 화면보호기로 설정</button>
 </div>
 
 <div id="overlay">
@@ -83,6 +87,11 @@ const clamp = (x, a, b) => x < a ? a : x > b ? b : x;
 const lerp = (a, b, t) => a + (b - a) * t;
 const sstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
 const $ = id => document.getElementById(id);
+// 데스크톱 앱(desktop/)에서 열렸을 때 preload가 넣어 주는 연결부. 브라우저에서는 null
+// 앱에서는 '기기 소리'가 공유 창 없이 시스템 소리(루프백)로 바로 연결됨
+const HOST = window.rainKeysHost || null;
+const SAVER = !!(HOST && HOST.mode === 'saver');
+if (SAVER) document.body.classList.add('saver');
 
 const glc = $('gl'), cv = $('c'), g = cv.getContext('2d');
 const overlay = $('overlay'), msg = $('msg');
@@ -787,6 +796,7 @@ async function startCapture(kind) {
         systemAudio: 'include', selfBrowserSurface: 'exclude'
       });
       if (!stream.getAudioTracks().length) { stream.getTracks().forEach(t => t.stop()); stream = null; throw new Error('NOAUDIO'); }
+      if (HOST) stream.getVideoTracks().forEach(t => t.stop());   // 앱은 화면 영상이 필요 없음(루프백 소리만 씀)
     } else {
       stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
     }
@@ -1402,7 +1412,8 @@ $('fs').addEventListener('click', () => {
 });
 $('fallv').textContent = Math.round(fallT * 1000) + 'ms';
 const canSys = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) && !window.matchMedia('(pointer:coarse)').matches;
-if (!canSys) { $('btnSys').style.display = 'none'; $('sysnote').textContent = '이 기기/브라우저는 내부 소리 공유를 지원하지 않아 마이크로 듣는 방식만 가능해요.'; }
+if (HOST) $('sysnote').textContent = '이 앱은 기기에서 나오는 모든 소리를 공유 창이나 마이크 권한 없이 바로 들어요. 소리는 그대로 들리고 분석만 합니다.';
+else if (!canSys) { $('btnSys').style.display = 'none'; $('sysnote').textContent = '이 기기/브라우저는 내부 소리 공유를 지원하지 않아 마이크로 듣는 방식만 가능해요.'; }
 $('btnSys').addEventListener('click', () => startCapture('system'));
 $('btnMic').addEventListener('click', () => startCapture('mic'));
 
@@ -1421,11 +1432,24 @@ function armResume() {
 }
 // 이 사이트에 마이크 권한을 이미 허용했다면 버튼 없이 바로 시작
 async function autoStart() {
+  if (HOST) return;   // 앱에서는 마이크 대신 시스템 소리로 시작(앱이 rainKeysAutoStart를 부름)
   try {
     if (!navigator.permissions || !navigator.mediaDevices) return;
     const st = await navigator.permissions.query({ name: 'microphone' });
     if (st.state === 'granted' && !started) await startCapture('mic');
   } catch (e) {}
+}
+
+if (HOST) {
+  // 앱이 사용자 조작으로 취급해 불러 줌(화면 공유 API는 사용자 조작이 있어야 열림)
+  window.rainKeysAutoStart = () => startCapture('system');
+  // 화면보호기: 마우스 이동·키 입력은 앱이 감지하고, 클릭·휠은 여기서 알림
+  if (SAVER) ['pointerdown', 'wheel'].forEach(ev => window.addEventListener(ev, () => HOST.quit(), { passive: true }));
+  if (HOST.canInstallSaver) {
+    const b = $('saverBtn');
+    b.hidden = false;
+    b.addEventListener('click', async () => { b.textContent = (await HOST.installSaver()) ? '✓ 화면보호기로 설정됨' : '설정하지 못했어요'; });
+  }
 }
 
 try { initGL(); } catch (e) { console.error(e); showMsg('이 브라우저는 WebGL2를 지원하지 않아 바다를 그릴 수 없어요. 최신 Chrome/Edge/Safari를 사용해 주세요.'); }

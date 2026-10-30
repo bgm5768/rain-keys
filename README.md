@@ -16,6 +16,23 @@
 | 싱크 | 소리가 난 뒤 방울이 물에 닿기까지의 시간. 화면이 늦으면 왼쪽, 블루투스 이어폰이면 오른쪽 |
 | 저사양 | 해상도와 입자 수를 줄입니다. 휴대폰은 자동으로 켜지고, 3초 이상 40fps 미만이면 자동 전환 |
 
+## Windows 데스크톱 앱 · 화면보호기 (`desktop/`)
+웹과 같은 `index.html`을 Electron으로 띄웁니다. 앱에서는 **공유 창이나 마이크 권한 없이** 기기의 모든 소리(WASAPI 루프백)를 바로 듣습니다.
+
+- 앱을 열고 아래 패널의 **🌧 화면보호기로 설정**을 누르면 Rain Keys가 현재 사용자의 화면보호기로 등록되고, Windows 화면보호기 설정 창이 열려 대기 시간을 고를 수 있어요.
+- 화면보호기 중에는 주 모니터에 바다, 다른 모니터는 검은 화면입니다. 마우스를 움직이거나 키·클릭을 하면 끝나요.
+- `RainKeys.scr`은 Windows가 부르는 작은 런처(Go)로, 설치된 `RainKeys.exe`를 `--saver`로 실행합니다. 설정 창의 작은 미리보기는 아직 비어 있어요.
+- 영상이 재생 중이면(유튜브 등) Windows가 화면보호기 시작을 막을 수 있어요.
+
+개발(필요: Node, Go):
+```
+cd desktop
+npm install
+npm start          # 앱
+npm run saver      # 화면보호기 모드로 바로 실행
+npm run dist       # .scr 빌드 + 설치 파일 dist/RainKeys-Setup-<버전>.exe
+```
+
 ## GitHub Pages 배포
 1. GitHub에서 새 저장소를 만듭니다(예: `rain-keys`, Public).
 2. 이 폴더의 `index.html`, `README.md`, `.nojekyll`을 업로드합니다(웹에서 **Add file → Upload files**).
