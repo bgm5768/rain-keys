@@ -31,6 +31,10 @@
         "to": "web/index.html"
       },
       {
+        "from": "../assets",
+        "to": "web/assets"
+      },
+      {
         "from": "native/win-scr/bin/RainKeys.scr",
         "to": "RainKeys.scr"
       }
