@@ -49,7 +49,10 @@
   .steps span{position:absolute;top:0;transform:translateX(-50%);font-size:10px;opacity:.45;cursor:pointer;white-space:nowrap;letter-spacing:-.03em;transition:opacity .15s}
   .steps span:hover{opacity:.8}
   .steps span.on{opacity:1;color:#fff;font-weight:600}
-  .scenes{display:flex;flex-wrap:wrap;gap:6px 14px}
+  .scenes{display:flex;flex-wrap:wrap;gap:6px 8px}
+  #dial{position:static;inset:auto;width:100%;height:66px;display:block;border-radius:10px;background:rgba(0,0,0,.22)}
+  #tods button{font-size:10.5px;padding:6px 0}
+  .hint{font-size:10.5px;opacity:.55;margin-top:-3px;font-variant-numeric:tabular-nums}
   .scene{padding:0;border:0;background:none;cursor:pointer;color:#dce8ff;font:inherit;font-size:11.5px;display:flex;flex-direction:column;align-items:center;gap:6px;width:64px;opacity:.6;transition:opacity .15s}
   .scene img{width:54px;height:54px;display:block;border-radius:14px;outline:2px solid transparent;outline-offset:2px;transition:outline-color .15s}
   .scene:hover{opacity:.9}
@@ -104,7 +107,17 @@
 
 <div id="card" class="glass" hidden role="dialog" aria-label="설정">
   <div class="sec">
-    <h3>장면</h3>
+    <h3>배경</h3>
+    <div class="scenes" id="bgs"></div>
+  </div>
+  <div class="sec">
+    <h3>시간대 <span class="tip" tabindex="0" data-tip="실시간은 지금 시각 그대로 해와 달이 실제처럼 뜨고 져요(남쪽을 보는 하늘: 왼쪽 동, 오른쪽 서). 달 모양도 오늘의 실제 위상이에요.">i</span></h3>
+    <div class="seg" id="tods"></div>
+    <canvas id="dial"></canvas>
+    <div class="hint" id="todInfo"></div>
+  </div>
+  <div class="sec">
+    <h3>비 효과</h3>
     <div class="scenes" id="scenes"></div>
   </div>
   <div class="sec">
@@ -147,7 +160,7 @@ const sstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t 
 const $ = id => document.getElementById(id);
 
 /* ----------------------------------------------------------------------
-   장면(환경). 장면 하나 = 이 값들의 묶음이고, 설정 카드의 장면 타일은 이 목록에서 자동으로 만들어짐.
+   비 효과. 항목 하나 = 이 값들의 묶음이고, 설정 카드의 '비 효과' 타일은 이 목록에서 자동으로 만들어짐.
    새 장면(눈, 강한 바람, 다른 배경 …)은 항목을 더하고, 아직 없는 값(예: precip:'snow', sky:'dawn')을 읽는 쪽만 구현하면 됨.
      precip     내리는 것: 'rain' (예정: 'snow')
      sky        하늘·배경: 'neon-night' (예정: 다른 배경)
@@ -166,6 +179,98 @@ const SCENES = [
 ];
 let SCENE = SCENES[0];
 const rippleTau = s => SCENE.rippleTau[0] + SCENE.rippleTau[1] * s;
+
+/* ----------------------------------------------------------------------
+   배경과 시간대. 배경 하나 = BGS 항목(셰이더의 uBg 번호 + 물결·구름·밤 하늘색),
+   시간대 = 가상의 시각. '실시간'은 지금 시각 그대로 해와 달이 실제처럼 뜨고 짐.
+   ---------------------------------------------------------------------- */
+const BGS = [
+  { id: 'neon', name: '네온 호수', bg: 0, calm: 0.035, cover: 1.0, icon: 'assets/bg-neon.png',
+    night: { zen: [0.04, 0.04, 0.10], mid: [0.13, 0.12, 0.29], hor: [0.42, 0.29, 0.55], cld: [0.10, 0.05, 0.12], haze: [0.24, 0.18, 0.38], deep: [0.016, 0.045, 0.088] } },
+  { id: 'han', name: '한강', bg: 1, calm: 0.05, cover: 0.85, icon: 'assets/bg-han.png',
+    night: { zen: [0.03, 0.03, 0.07], mid: [0.12, 0.10, 0.17], hor: [0.36, 0.25, 0.27], cld: [0.12, 0.07, 0.06], haze: [0.24, 0.18, 0.21], deep: [0.014, 0.03, 0.05] } },
+  { id: 'lighthouse', name: '등대 바다', bg: 2, calm: 0.11, cover: 0.8, icon: 'assets/bg-lighthouse.png',
+    night: { zen: [0.015, 0.02, 0.05], mid: [0.05, 0.06, 0.12], hor: [0.12, 0.14, 0.22], cld: [0.03, 0.03, 0.05], haze: [0.10, 0.12, 0.18], deep: [0.008, 0.02, 0.04] } },
+  { id: 'aurora', name: '오로라 호수', bg: 3, calm: 0.03, cover: 0.35, icon: 'assets/bg-aurora.png',
+    night: { zen: [0.01, 0.015, 0.04], mid: [0.03, 0.05, 0.10], hor: [0.06, 0.10, 0.16], cld: [0.02, 0.04, 0.05], haze: [0.06, 0.09, 0.14], deep: [0.008, 0.02, 0.04] } }
+];
+let BG = BGS[0];
+const TODS = [
+  { id: 'live', name: '실시간' }, { id: 'dawn', name: '새벽' }, { id: 'morning', name: '아침' }, { id: 'dusk', name: '황혼' }, { id: 'night', name: '밤' }
+];
+let TOD = TODS[0];
+
+// 해·달의 실제 고도·방위(위도 37.5°, 경도는 시간대 기준. 한국 표준시면 서울 경도)
+const RAD = Math.PI / 180, LAT = 37.5 * RAD;
+function altAz(H, dec) {
+  const el = Math.asin(Math.sin(LAT) * Math.sin(dec) + Math.cos(LAT) * Math.cos(dec) * Math.cos(H));
+  const az = Math.atan2(Math.sin(H), Math.cos(H) * Math.sin(LAT) - Math.tan(dec) * Math.cos(LAT));   // 남쪽 0, 서쪽 +
+  return { el, az };
+}
+function astro(date) {
+  const tz = -date.getTimezoneOffset() / 60, lon = tz === 9 ? 127 : tz * 15;
+  const doy = (Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) - Date.UTC(date.getFullYear(), 0, 0)) / 864e5;
+  const dec = -23.44 * RAD * Math.cos(2 * Math.PI / 365 * (doy + 10));
+  const B = 2 * Math.PI * (doy - 81) / 364, eot = 9.87 * Math.sin(2 * B) - 7.53 * Math.cos(B) - 1.5 * Math.sin(B);   // 균시차(분)
+  const corr = (lon - tz * 15) / 15 + eot / 60;                           // 시계 시각 → 태양시
+  const hrs = date.getHours() + date.getMinutes() / 60 + date.getSeconds() / 3600;
+  const H = (hrs + corr - 12) * 15 * RAD;
+  const ph = (((date.getTime() - Date.UTC(2000, 0, 6, 18, 14)) / 864e5 / 29.530588) % 1 + 1) % 1;   // 달의 위상(0 삭 → 0.5 보름)
+  const h0 = Math.acos(clamp((Math.sin(-0.833 * RAD) - Math.sin(LAT) * Math.sin(dec)) / (Math.cos(LAT) * Math.cos(dec)), -1, 1)) / RAD / 15;
+  return {
+    sun: altAz(H, dec), moon: altAz(H - ph * 2 * Math.PI, dec * Math.cos(2 * Math.PI * ph)), ph,
+    rise: 12 - h0 - corr, set: 12 + h0 - corr                             // 오늘 일출·일몰(시계 시각, 시)
+  };
+}
+// 시간대가 가리키는 시각: 실시간은 지금, 나머지는 오늘의 일출·일몰에 맞춘 시각
+function todDate() {
+  const now = new Date();
+  if (TOD.id === 'live') return now;
+  const a = astro(now), hr = { dawn: a.rise - 0.55, morning: a.rise + 1.6, dusk: a.set - 0.12, night: 22.5 }[TOD.id];
+  const d = new Date(now); d.setHours(0, 0, 0, 0); d.setTime(d.getTime() + hr * 3600e3);
+  return d;
+}
+// 실제 하늘(고도 0~75°)을 화면에 보이는 하늘 띠에 눌러 담음. 방위 ±100° → 화면 좌우 끝 근처
+function skyDir(p) {
+  const x = p.az / (100 * RAD) * 0.5, y = p.el > 0 ? 0.012 + 0.16 * Math.sin(p.el) / Math.sin(75 * RAD) : 0.012 + p.el * 0.3;
+  const l = Math.hypot(x, y, 1); return [x / l, y / l, 1 / l];
+}
+// 태양 고도별 하늘색(비 오는 날이라 채도를 조금 낮춤). [고도°, 천정, 중간, 지평선, 구름빛, 물속, 안개, 해빛, 밤, 낮]
+const SKYK = [
+  [-18, [0.02, 0.022, 0.06], [0.06, 0.065, 0.14], [0.14, 0.13, 0.24], [0.05, 0.05, 0.10], [0.012, 0.03, 0.06], [0.10, 0.10, 0.18], [0, 0, 0], 1, 0],
+  [-8, [0.04, 0.06, 0.17], [0.12, 0.14, 0.32], [0.32, 0.28, 0.48], [0.10, 0.10, 0.20], [0.02, 0.04, 0.09], [0.20, 0.20, 0.35], [0, 0, 0], 0.75, 0.05],
+  [-2, [0.08, 0.10, 0.28], [0.30, 0.22, 0.42], [0.85, 0.42, 0.38], [0.25, 0.16, 0.25], [0.03, 0.05, 0.10], [0.45, 0.30, 0.40], [0.4, 0.16, 0.08], 0.35, 0.25],
+  [3, [0.16, 0.22, 0.45], [0.45, 0.38, 0.50], [1.0, 0.60, 0.38], [0.45, 0.32, 0.35], [0.05, 0.08, 0.13], [0.60, 0.45, 0.42], [1.0, 0.6, 0.3], 0.1, 0.55],
+  [12, [0.22, 0.36, 0.62], [0.45, 0.55, 0.72], [0.70, 0.74, 0.82], [0.30, 0.32, 0.36], [0.06, 0.12, 0.17], [0.55, 0.60, 0.70], [1.0, 0.92, 0.8], 0, 0.9],
+  [40, [0.20, 0.38, 0.70], [0.42, 0.56, 0.78], [0.68, 0.75, 0.86], [0.32, 0.34, 0.38], [0.06, 0.13, 0.19], [0.58, 0.64, 0.74], [1.0, 0.97, 0.9], 0, 1]
+];
+const mixA = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t);
+function skyTarget() {
+  const A = astro(todDate()), el = A.sun.el / RAD;
+  let k = 0; while (k < SKYK.length - 2 && el > SKYK[k + 1][0]) k++;
+  const K0 = SKYK[k], K1 = SKYK[k + 1], t = clamp((el - K0[0]) / (K1[0] - K0[0]), 0, 1);
+  const P = { zen: mixA(K0[1], K1[1], t), mid: mixA(K0[2], K1[2], t), hor: mixA(K0[3], K1[3], t), cld: mixA(K0[4], K1[4], t),
+    deep: mixA(K0[5], K1[5], t), haze: mixA(K0[6], K1[6], t), sunC: mixA(K0[7], K1[7], t), night: lerp(K0[8], K1[8], t), day: lerp(K0[9], K1[9], t) };
+  // 아침 노을은 분홍빛, 저녁 노을은 주황빛
+  if (A.sun.az < 0 && el > -8 && el < 8) P.hor = mixA(P.hor, [P.hor[0] * 0.85, P.hor[1] * 0.95, P.hor[2] * 1.35], 1 - Math.abs(el) / 8);
+  // 밤에는 배경마다 고유한 하늘(도시 불빛, 네온, 맑은 북쪽 하늘)
+  for (const key in BG.night) P[key] = mixA(P[key], BG.night[key], P.night);
+  P.sunC = P.sunC.map(v => v * sstep(-1.5, 0.5, el));
+  P.glow = [1.0, 0.45, 0.3].map(v => v * 0.35 * Math.exp(-Math.pow((el + 1) / 5, 2)));
+  P.sunD = skyDir(A.sun); P.moonD = skyDir(A.moon); P.moonPh = A.ph;
+  P.moonL = sstep(-2, 1, A.moon.el / RAD) * lerp(1, 0.3, P.day);
+  P.astro = A;
+  return P;
+}
+let SKY = null;
+function updateSky(dt) {
+  const T = skyTarget();
+  if (!SKY) { SKY = T; return; }
+  const r = 1 - Math.exp(-dt / 0.6);                                          // 시간대·배경을 바꾸면 약 1초에 걸쳐 바뀜
+  for (const key of ['zen', 'mid', 'hor', 'cld', 'deep', 'haze', 'sunC', 'glow', 'sunD', 'moonD']) SKY[key] = mixA(SKY[key], T[key], r);
+  for (const key of ['night', 'day', 'moonL']) SKY[key] = lerp(SKY[key], T[key], r);
+  SKY.moonPh = T.moonPh; SKY.astro = T.astro;
+}
 // 데스크톱 앱(desktop/)에서 열렸을 때 preload가 넣어 주는 연결부. 브라우저에서는 null
 // 앱에서는 '기기 소리'가 공유 창 없이 시스템 소리(루프백)로 바로 연결됨
 const HOST = window.rainKeysHost || null;
@@ -202,10 +307,10 @@ uniform float uY0, uF, uHc, uCx, uTime;
 uniform vec4 uEvA[${EVMAX}]; // X, Z, 나이(s), 진폭
 uniform vec4 uEvB[${EVMAX}]; // 크기
 uniform int uEvN;
-const vec3 LD0 = vec3(-0.2648, 0.1891, 0.9456);
 const vec3 LD1 = vec3( 0.3711, 0.0417, 0.9277);
 const vec3 LD2 = vec3(-0.5267, 0.0297, 0.8496);
-const vec3 DEEP = vec3(0.016,0.045,0.088);
+uniform vec3 uDeepC;               // 시간대에 따라 바뀌는 물속 색
+#define DEEP uDeepC
 float hash21(vec2 p){ p=fract(p*vec2(123.34,456.21)); p+=dot(p,p+45.32); return fract(p.x*p.y); }
 vec3 hueRGB(float h){ return clamp(abs(mod(h/60.0+vec3(0.0,4.0,2.0),6.0)-3.0)-1.0,0.0,1.0); }
 float vnoise(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
@@ -229,27 +334,185 @@ vec3 decor(vec2 pr){
   }
   return c;
 }
+// ---------- 하늘: 시간대(해·달·하늘색)와 배경(uBg)은 JS가 유니폼으로 넘김 ----------
+// 해·달 방향은 실제 고도·방위를 화면에 맞게 눌러 담은 것(남쪽을 보고 있음: 왼쪽 동, 오른쪽 서)
+uniform vec3 uZen, uMid, uHor, uCld, uHazeC, uGlowC, uSunD, uSunC, uMoonD;
+uniform float uMoonPh, uMoonL, uNight, uDay, uCover;
+uniform int uBg;
+// 해·달·별·은하수·오로라: 구름에 가려지는 것들
+vec3 celestial(vec3 d){
+  vec3 c=vec3(0.0);
+  float a=d.x/max(d.z,0.2), h=d.y/max(d.z,0.2);
+  if(uNight>0.01){
+    vec2 sp=vec2(a,h)*260.0, id=floor(sp), fr=fract(sp)-0.5;
+    float hs=hash21(id+3.7), thr=uBg==3?0.955:0.985;
+    if(hs>thr){
+      vec2 o=vec2(hash21(id+1.1),hash21(id+2.3))-0.5; vec2 q=fr-o*0.7;
+      float tw=0.6+0.4*sin(uTime*(1.5+3.0*hash21(id))+hs*40.0);
+      c+=vec3(0.8,0.86,1.0)*exp(-dot(q,q)*90.0)*tw*(hs-thr)/(1.0-thr)*1.8*uNight;
+    }
+    if(uBg==3){
+      float band=exp(-pow(dot(vec2(a,h),vec2(0.42,0.91))-0.07,2.0)/0.0018);
+      c+=vec3(0.55,0.5,0.78)*band*(0.2+0.6*fbm(vec2(a,h)*34.0))*0.4*uNight;
+      // 오로라 커튼: 아래 끝은 또렷하고 위로 옅어짐, 초록 → 보라
+      float hc=0.075+0.022*sin(a*6.0+uTime*0.05)+0.025*fbm(vec2(a*3.0,uTime*0.02));
+      float y=h-hc;
+      float amp=smoothstep(-0.008,0.003,y)*exp(-max(y,0.0)/0.045);
+      float st=0.3+0.7*pow(fbm(vec2(a*48.0+uTime*0.12,uTime*0.05)),1.5);
+      vec3 ac=mix(vec3(0.12,1.0,0.55),vec3(0.72,0.28,1.0),smoothstep(0.0,0.06,y));
+      c+=ac*amp*st*0.6*uNight;
+    }
+  }
+  // 해 원반
+  float sa=sqrt(max(0.0,2.0*(1.0-dot(d,uSunD))));
+  c+=uSunC*5.0*smoothstep(0.016,0.0135,sa);
+  // 달: 실제 위상(차고 기욺)대로 밝은 면
+  float md=dot(d,uMoonD);
+  const float MR=0.014;
+  if(uMoonL>0.0 && md>0.999){
+    vec3 rt=normalize(cross(vec3(0.0,1.0,0.0),uMoonD)), up=cross(uMoonD,rt);
+    vec2 p=vec2(dot(d,rt),dot(d,up))/MR; float r2=dot(p,p);
+    if(r2<1.0){
+      float k=cos(6.2831853*uMoonPh), sx=uMoonPh<0.5?p.x:-p.x;
+      float lit=smoothstep(-0.06,0.06,sx-k*sqrt(max(0.0,1.0-p.y*p.y)));
+      float mare=0.8+0.2*vnoise(p*2.6+3.0);
+      c+=vec3(1.0,0.97,0.88)*(lit*mare*1.5+0.03)*smoothstep(1.0,0.88,sqrt(r2))*uMoonL;
+    }
+  }
+  return c;
+}
+// 배경 1: 네온 호수
+vec3 bgNeon(vec3 d, vec2 pr, vec3 c){
+  float nl=mix(0.35,1.0,uNight);
+  c+=decor(pr)*nl;
+  float n=max(dot(d,LD1),0.0); c+=vec3(1.0,0.33,0.64)*(0.42*pow(n,60.0)+0.5*pow(n,500.0))*nl;
+  float q=max(dot(d,LD2),0.0); c+=vec3(1.0,0.70,0.28)*(0.38*pow(q,60.0)+0.4*pow(q,500.0))*nl;
+  return c;
+}
+// 배경 2: 한강 — 강 건너 빌딩 숲, 남산과 타워, 높은 타워, 아치 다리와 가로등
+vec3 bgHan(float a, float h, float px, vec3 c){
+  float hill=0.026*exp(-pow((a-0.2)/0.075,2.0))+0.012*exp(-pow((a+0.47)/0.12,2.0));
+  const float WA=0.0105;
+  float id=floor(a/WA), hh=hash21(vec2(id,3.1)), bx=fract(a/WA);
+  float hb=0.007+0.03*hh*hh*(0.6+0.8*exp(-pow(a/0.35,2.0)));
+  if(hash21(vec2(id,7.7))>0.9) hb+=0.016;
+  if(bx<0.06||bx>0.94) hb*=0.55;
+  float lt=abs(a+0.30), ltW=0.0075*(1.0-clamp(h/0.118,0.0,1.0))+0.0006;
+  float inLt=(h<0.118&&lt<ltW)?1.0:0.0;
+  float ns=abs(a-0.2), inNs=0.0;
+  if(ns<0.0011&&h<0.066) inNs=1.0;
+  if(abs(h-0.052)<0.0035&&ns<0.0042) inNs=1.0;
+  if(ns<0.0004&&h<0.08) inNs=1.0;
+  float inB=smoothstep(px,0.0,h-max(hb,hill));
+  float m=max(inB,max(inLt,inNs));
+  if(m>0.0){
+    vec3 sc=mix(mix(vec3(0.012,0.014,0.03),vec3(0.24,0.26,0.30),uDay),uHor,0.3+0.25*uDay);
+    if(h<hb&&h>0.0015){
+      vec2 wg=vec2(a/0.0017,h/0.0019), wi=floor(wg), wf=fract(wg);
+      float on=step(0.62,hash21(wi+id*3.1));
+      float win=step(0.25,wf.x)*step(wf.x,0.75)*step(0.3,wf.y)*step(wf.y,0.8);
+      sc+=(hash21(wi+7.0)<0.7?vec3(1.0,0.78,0.48):vec3(0.75,0.85,1.0))*on*win*0.55*uNight;
+    }
+    if(inLt>0.5) sc+=vec3(0.75,0.85,1.0)*0.22*uNight*step(0.5,fract(h*180.0));
+    c=mix(c,sc,m);
+  }
+  c+=vec3(0.6,0.8,1.0)*uNight*1.2*exp(-(pow(a+0.30,2.0)+pow(h-0.119,2.0))/0.000004);
+  c+=vec3(1.0,0.45,0.75)*uNight*0.9*exp(-(pow(a-0.2,2.0)+pow(h-0.052,2.0))/0.00001);
+  c+=vec3(1.0,0.2,0.2)*uNight*exp(-(pow(a-0.2,2.0)+pow(h-0.081,2.0))/0.0000015)*(0.6+0.4*sin(uTime*3.0));
+  c+=vec3(1.0,0.55,0.32)*0.10*uNight*exp(-h*45.0);
+  // 다리
+  const float DK=0.0032;
+  float sg=(a+0.62)/0.13, seg=fract(sg);
+  float arch=DK+0.011*sin(3.14159*seg);
+  float onArch=smoothstep(px*1.3,0.0,abs(h-arch))*step(DK,h);
+  float inDk=step(DK,h)*step(h,DK+0.0012);
+  float pier=step(abs(fract(sg+0.5)-0.5)*0.13,0.0012)*step(h,DK);
+  c=mix(c,mix(vec3(0.02,0.022,0.04),vec3(0.3,0.31,0.34),uDay),max(max(inDk,onArch*0.9),pier));
+  float lx=(fract(a/0.009)-0.5)*0.009, ly=h-DK-0.0016;
+  c+=vec3(1.0,0.8,0.5)*exp(-(lx*lx+ly*ly)/(px*px*0.7))*uNight*0.9;
+  c+=vec3(0.5,0.75,1.0)*onArch*uNight*0.5;
+  return c;
+}
+// 배경 3: 장엄한 바다 — 오른쪽 바위 곶 위 등대, 회전하는 불빛, 먼 배
+vec3 bgLight(float a, float h, float px, vec3 c){
+  float hr=smoothstep(0.16,0.27,a)*(0.028+0.012*fbm(vec2(a*18.0,2.0)))+0.006*smoothstep(0.5,0.75,a);
+  float inR=smoothstep(px,0.0,h-hr);
+  if(inR>0.0){
+    vec3 rc=mix(mix(vec3(0.008,0.01,0.018),vec3(0.13,0.14,0.15),uDay),uHor,0.22);
+    rc*=0.75+0.5*fbm(vec2(a*80.0,h*120.0));
+    c=mix(c,rc,inR);
+  }
+  const float LX=0.33, LTH=0.05;
+  float lb=0.028+0.012*fbm(vec2(LX*18.0,2.0)), ly=h-lb;
+  float lw=mix(0.0042,0.0027,clamp(ly/LTH,0.0,1.0));
+  if(ly>-0.003&&ly<LTH&&abs(a-LX)<lw){
+    vec3 tc=mix(vec3(0.85,0.85,0.82),vec3(0.75,0.12,0.1),step(0.5,fract(ly/0.0105)));
+    tc=mix(tc*mix(0.06,1.0,uDay),uHor,0.12)*(0.7+0.3*smoothstep(-lw,lw,a-LX));
+    c=tc;
+  }
+  float l2=ly-LTH;
+  if(l2>=0.0&&l2<0.008&&abs(a-LX)<0.0032*(l2>0.0055?1.0-(l2-0.0055)/0.0025:1.0)){
+    vec3 lc=mix(vec3(0.03),vec3(0.2,0.2,0.22),uDay);
+    if(l2>0.0012&&l2<0.0055) lc=mix(lc,vec3(1.0,0.9,0.6)*1.4,0.25+0.75*uNight);
+    c=lc;
+  }
+  vec2 L=vec2(LX,lb+LTH+0.0034), q=vec2(a,h)-L;
+  float ph=uTime*0.75, cb=cos(ph), sb=sin(ph), bs=(0.2+0.8*uNight)*(1.0-0.7*uDay);
+  float al=q.x*sign(cb);
+  if(al>0.0){
+    float w=0.002+al*0.09, pp=q.y-al*0.015, ln=0.03+0.9*abs(cb);
+    c+=vec3(1.0,0.93,0.75)*exp(-pp*pp/(w*w))*exp(-al/ln)*0.55*bs;
+  }
+  float fl=pow(max(-sb,0.0),24.0);
+  c+=vec3(1.0,0.95,0.8)*(fl*2.5+0.3)*exp(-dot(q,q)/(0.00002+fl*0.0004))*(0.3+0.7*bs);
+  c+=vec3(1.0,0.3,0.25)*uNight*exp(-(pow(a+0.36,2.0)+pow(h-0.0012,2.0))/0.0000012)*0.8;
+  c+=vec3(0.3,1.0,0.5)*uNight*exp(-(pow(a+0.05,2.0)+pow(h-0.0009,2.0))/0.000001)*0.6;
+  return c;
+}
+// 배경 4: 별빛 오로라 호수 — 눈 덮인 산맥 두 겹, 낮엔 무지개(오로라·은하수는 celestial)
+vec3 bgDream(float a, float h, float px, vec3 c){
+  float rr=length(vec2(a,h+0.17)), rb=(rr-0.31)/0.024;
+  if(abs(rb)<1.0) c+=hueRGB((0.5-0.5*rb)*270.0)*0.24*uDay*(1.0-rb*rb)*smoothstep(0.0,0.03,h);
+  float r1=0.035+0.04*pow(1.0-abs(2.0*vnoise(vec2(a*5.0,1.3))-1.0),2.0)+0.012*fbm(vec2(a*22.0,4.0));
+  float r2=0.012+0.022*pow(1.0-abs(2.0*vnoise(vec2(a*9.0+7.0,2.1))-1.0),1.6)+0.006*fbm(vec2(a*40.0,1.0));
+  float m1=smoothstep(px,0.0,h-r1);
+  if(m1>0.0){
+    float snow=smoothstep(r1-0.018,r1-0.004,h+0.006*fbm(vec2(a*60.0,h*80.0)))*smoothstep(0.05,0.065,r1);   // 높은 봉우리에만 눈
+    vec3 mc=mix(vec3(0.03,0.04,0.08),vec3(0.33,0.38,0.48),uDay);
+    vec3 sn=mix(vec3(0.22,0.27,0.42)*(0.5+0.5*uMoonL),vec3(0.95,0.95,1.0),uDay);
+    c=mix(c,mix(mix(mc,sn,snow*0.85),uHor,0.38),m1);
+  }
+  float m2=smoothstep(px,0.0,h-r2);
+  if(m2>0.0) c=mix(c,mix(mix(vec3(0.01,0.012,0.03),vec3(0.12,0.16,0.18),uDay),uHor,0.12),m2);
+  return c;
+}
 vec3 sky(vec3 d){
   float e=clamp(d.y,0.0,1.0);
-  vec3 c=mix(vec3(0.42,0.29,0.55), vec3(0.27,0.20,0.44), smoothstep(0.0,0.05,e));
-  c=mix(c, vec3(0.13,0.12,0.29), smoothstep(0.05,0.22,e));
-  c=mix(c, vec3(0.06,0.06,0.15), smoothstep(0.22,0.6,e));
-  c=mix(c, vec3(0.03,0.03,0.08), smoothstep(0.6,1.0,e));
-  // 낮게 깔린 비구름: 도시 불빛에 아래쪽이 보랏빛으로 물듦
+  vec3 c=mix(uHor,uMid,smoothstep(0.0,0.08,e));
+  c=mix(c,uZen,smoothstep(0.08,0.45,e));
+  // 해가 뜨고 지는 쪽 지평선이 물듦(해가 지평선 아래여도)
+  vec2 dh=normalize(d.xz+vec2(0.0,1e-4)), sh=normalize(uSunD.xz+vec2(0.0,1e-4));
+  c+=uGlowC*pow(max(dot(dh,sh),0.0),6.0)*exp(-e*10.0);
+  float sd=max(dot(d,uSunD),0.0);
+  c+=uSunC*(0.08*pow(sd,8.0)+0.3*pow(sd,90.0));
+  float md=max(dot(d,uMoonD),0.0), lf=0.5-0.5*cos(6.2831853*uMoonPh);
+  c+=vec3(0.7,0.76,0.95)*uMoonL*lf*(0.06*pow(md,40.0)+0.14*pow(md,400.0));
   if(d.y>0.0){
-    vec2 cp=d.xz/(d.y+0.06)*0.55-vec2(uTime*0.0015,0.0);          // 거의 멈춘 듯 아주 느리게 흐르는 구름(수면에 비친 구름이 옆으로 흘러 보이지 않게)
+    vec2 cp=d.xz/(d.y+0.06)*0.55-vec2(uTime*0.0015,0.0);          // 거의 멈춘 듯 아주 느리게 흐르는 구름
     float cl=fbm(cp)*0.75+fbm(cp*2.7+5.0)*0.25;
-    float hz=1.0-smoothstep(0.0,0.35,e);
-    c*=0.72+0.6*smoothstep(0.3,0.75,cl);
-    c+=vec3(0.10,0.05,0.12)*hz*smoothstep(0.45,0.8,cl);
+    float s=smoothstep(0.3,0.75,cl), hz=1.0-smoothstep(0.0,0.35,e);
+    float cov=clamp((cl-(0.62-0.4*uCover))/0.14,0.0,1.0);
+    c+=celestial(d)*(1.0-cov*0.92);
+    c*=mix(1.0,0.72+0.6*s,uCover);
+    c+=uCld*hz*s+uSunC*0.12*pow(sd,6.0)*s*uCover;
   }
-  float m=max(dot(d,LD0),0.0);                                     // 구름 뒤의 달: 원반 없이 번진 빛만
-  c+=vec3(0.70,0.76,0.95)*(0.22*pow(m,12.0)+0.18*pow(m,60.0));
-  float n=max(dot(d,LD1),0.0);
-  c+=vec3(1.0,0.33,0.64)*(0.42*pow(n,60.0)+0.5*pow(n,500.0));
-  float a=max(dot(d,LD2),0.0);
-  c+=vec3(1.0,0.70,0.28)*(0.38*pow(a,60.0)+0.4*pow(a,500.0));
-  if(d.z>0.05){ c+=decor(vec2(uCx+uF*d.x/d.z, uY0-uF*d.y/d.z)); }
+  if(d.z>0.05){
+    float a=d.x/d.z, h=d.y/d.z, px=1.3/uF;
+    if(uBg==0) c=bgNeon(d,vec2(uCx+uF*a,uY0-uF*h),c);
+    else if(uBg==1) c=bgHan(a,h,px,c);
+    else if(uBg==2) c=bgLight(a,h,px,c);
+    else c=bgDream(a,h,px,c);
+  }
   return c;
 }
 // 물방울·물막이 보는 주변: 위는 하늘, 아래는 하늘을 비추는 수면
@@ -404,9 +667,9 @@ void main(){
     float emb=clamp(0.26*rp.y-0.95*rp.z,-1.0,1.0);                 // 빛을 향한 쪽은 밝고 반대쪽은 어둡게(엠보싱)
     col+=vec3(0.55,0.62,0.9)*max(emb,0.0)*0.22 - vec3(0.03,0.04,0.07)*max(-emb,0.0)*1.2;
     float hz=1.0-exp(-Z*0.0035);
-    col=mix(col,vec3(0.24,0.18,0.38),hz*0.45);
+    col=mix(col,uHazeC,hz*0.45);
   }
-  col+=vec3(0.85,0.76,1.0)*0.30*exp(-dy*dy/2.4);
+  col+=uHazeC*1.1*exp(-dy*dy/2.4);
   col+=(hash21(gl_FragCoord.xy+uTime)-0.5)/255.0;
   o=vec4(clamp(col,0.0,1.0),1.0);
 }`;
@@ -414,7 +677,7 @@ void main(){
 // 카메라 느낌: 초점 거리(약 2.9) 밖은 피사계 심도 흐림, 밝은 불빛은 번짐, 비네팅
 const FS_BLIT = `#version 300 es
 precision highp float;
-uniform sampler2D uScene; uniform vec2 uCanvas; uniform float uY0d, uFHd, uDpr; uniform int uTaps;
+uniform sampler2D uScene; uniform vec2 uCanvas; uniform float uY0d, uFHd, uDpr, uBloomT; uniform int uTaps;
 out vec4 o;
 void main(){
   vec2 fc=gl_FragCoord.xy, uv=fc/uCanvas;
@@ -430,7 +693,7 @@ void main(){
     vec2 d=vec2(cos(a),sin(a))*r;
     acc+=texture(uScene,(fc+d*coc)/uCanvas).rgb; ws+=1.0;
     vec3 b=texture(uScene,(fc+d*(18.0*uDpr+coc*2.0))/uCanvas).rgb;
-    bl+=max(b-vec3(0.45),0.0);
+    bl+=max(b-vec3(uBloomT),0.0);   // 낮에는 밝은 하늘 전체가 번지지 않게 문턱을 올림
   }
   vec3 c=acc/ws+bl/float(max(uTaps,1))*0.55;
   vec2 q=(uv-vec2(0.5,0.45))*vec2(1.0,1.15);
@@ -1309,6 +1572,15 @@ const evA = new Float32Array(EVMAX * 4), evB = new Float32Array(EVMAX * 4);
 function commonUniforms(p, t) {
   gl.uniform2f(p.u.uView, W, H); gl.uniform1f(p.u.uY0, y0); gl.uniform1f(p.u.uF, f); gl.uniform1f(p.u.uHc, hc); gl.uniform1f(p.u.uCx, cx); gl.uniform1f(p.u.uTime, t);
   if (p.u.uEvA) { gl.uniform4fv(p.u.uEvA, evA); gl.uniform4fv(p.u.uEvB, evB); gl.uniform1i(p.u.uEvN, EV.length); }
+  // 하늘(시간대·배경)
+  if (p.u.uZen) {
+    const v3 = (n, v) => { if (p.u[n]) gl.uniform3fv(p.u[n], v); }, v1 = (n, v) => { if (p.u[n]) gl.uniform1f(p.u[n], v); };
+    const nrm = v => { const l = Math.hypot(v[0], v[1], v[2]); return [v[0] / l, v[1] / l, v[2] / l]; };
+    v3('uZen', SKY.zen); v3('uMid', SKY.mid); v3('uHor', SKY.hor); v3('uCld', SKY.cld); v3('uHazeC', SKY.haze); v3('uGlowC', SKY.glow);
+    v3('uDeepC', SKY.deep); v3('uSunC', SKY.sunC); v3('uSunD', nrm(SKY.sunD)); v3('uMoonD', nrm(SKY.moonD));
+    v1('uMoonPh', SKY.moonPh); v1('uMoonL', SKY.moonL); v1('uNight', SKY.night); v1('uDay', SKY.day); v1('uCover', BG.cover);
+    if (p.u.uBg) gl.uniform1i(p.u.uBg, BG.bg);
+  }
 }
 function drawGL(t) {
   for (let i = 0; i < EV.length; i++) { const e = EV[i]; evA[i * 4] = e.X; evA[i * 4 + 1] = e.Z; evA[i * 4 + 2] = fxT - e.t0; evA[i * 4 + 3] = e.A; evB[i * 4] = e.s; }
@@ -1333,14 +1605,14 @@ function drawGL(t) {
   gl.bindFramebuffer(gl.FRAMEBUFFER, fbo); gl.viewport(0, 0, fboW, fboH);
   gl.disable(gl.BLEND);
   gl.useProgram(pSea); commonUniforms(pSea, t);
-  gl.uniform2f(pSea.u.uFbo, fboW, fboH); gl.uniform1f(pSea.u.uPx, fboW / W); gl.uniform1f(pSea.u.uCalm, 0.035);   // 물 스스로의 물결은 거의 없음 — 움직임은 빗방울이 만듦
+  gl.uniform2f(pSea.u.uFbo, fboW, fboH); gl.uniform1f(pSea.u.uPx, fboW / W); gl.uniform1f(pSea.u.uCalm, BG.calm);   // 물 스스로의 물결은 거의 없음(바다 배경만 너울) — 움직임은 빗방울이 만듦
   gl.uniform1f(pSea.u.uRain, RAIN * SCENE.fieldRings * Math.pow(rainAmt, 0.7)); gl.uniform1i(pSea.u.uRainL, LOW ? 1 : 3); gl.uniform1i(pSea.u.uWater, SCENE.water);
   gl.bindVertexArray(vaoFull); gl.drawArrays(gl.TRIANGLES, 0, 3);
   // 2) 화면으로 복사
   gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, glc.width, glc.height);
   gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, fboTex);
   gl.useProgram(pBlit); gl.uniform1i(pBlit.u.uScene, 0); gl.uniform2f(pBlit.u.uCanvas, glc.width, glc.height);
-  gl.uniform1f(pBlit.u.uY0d, y0 * DPR); gl.uniform1f(pBlit.u.uFHd, f * hc * DPR); gl.uniform1f(pBlit.u.uDpr, DPR); gl.uniform1i(pBlit.u.uTaps, LOW ? 6 : 16);
+  gl.uniform1f(pBlit.u.uY0d, y0 * DPR); gl.uniform1f(pBlit.u.uFHd, f * hc * DPR); gl.uniform1f(pBlit.u.uDpr, DPR); gl.uniform1i(pBlit.u.uTaps, LOW ? 6 : 16); gl.uniform1f(pBlit.u.uBloomT, lerp(0.45, 0.85, SKY.day));
   gl.drawArrays(gl.TRIANGLES, 0, 3);
   // 3) 물막·물방울 (premultiplied alpha)
   gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
@@ -1491,6 +1763,7 @@ let last = performance.now(), manual = false, fpsAcc = 0, fpsN = 0, fps = 60, sl
 const T0 = performance.now();
 function step(dt) {
   simT += dt;
+  updateSky(dt);
   if (!manual) analyze(dt);
   const target = analyser ? clamp(soundLvl / 8, 0, 1) : 0;   // 조용해지면 비가 그침
   rainAmt += (target - rainAmt) * (1 - Math.exp(-dt / (target > rainAmt ? 0.25 : 0.9)));
@@ -1514,7 +1787,7 @@ function frame(ts) {
     if (slowSec >= 3 && !LOW) { LOW = true; $('low').checked = true; resize(); }
   }
   if (!manual) { step(Math.min(0.05, rdt)); draw(); }
-  updateSrc();
+  updateSrc(); drawDial(rdt);
   requestAnimationFrame(frame);
 }
 
@@ -1522,24 +1795,73 @@ function frame(ts) {
 const card = $('card'), gear = $('gear');
 // 설정은 이 브라우저에만 저장(없어도 기본값으로 동작)
 const PREF = 'rainkeys.prefs';
-function savePrefs() { try { localStorage.setItem(PREF, JSON.stringify({ sens, fallT, showKeys, scene: SCENE.id })); } catch (e) {} }
+function savePrefs() { try { localStorage.setItem(PREF, JSON.stringify({ sens, fallT, showKeys, scene: SCENE.id, bg: BG.id, tod: TOD.id })); } catch (e) {} }
 try {
   const p = JSON.parse(localStorage.getItem(PREF) || 'null');
-  if (p) { if (p.sens >= 0 && p.sens <= 1) sens = p.sens; if (p.fallT >= 0.1 && p.fallT <= 0.8) fallT = p.fallT; if (typeof p.showKeys === 'boolean') showKeys = p.showKeys; if (p.scene) setScene(p.scene); }
+  if (p) { if (p.sens >= 0 && p.sens <= 1) sens = p.sens; if (p.fallT >= 0.1 && p.fallT <= 0.8) fallT = p.fallT; if (typeof p.showKeys === 'boolean') showKeys = p.showKeys; if (p.scene) setScene(p.scene); if (p.bg) setBg(p.bg); if (p.tod) setTod(p.tod); }
 } catch (e) {}
-// 주소의 ?scene= 이 저장값보다 우선(예전 /v1/ 주소는 ?scene=lively 로 옴)
-setScene(new URLSearchParams(location.search).get('scene'));
-function setScene(id) {
-  const sc = SCENES.find(x => x.id === id); if (!sc) return;
-  SCENE = sc;
-  document.querySelectorAll('.scene').forEach(b => b.classList.toggle('on', b.dataset.id === sc.id));
+// 주소의 ?scene= ?bg= ?time= 이 저장값보다 우선(예전 /v1/ 주소는 ?scene=lively 로 옴)
+const QS = new URLSearchParams(location.search);
+setScene(QS.get('scene')); setBg(QS.get('bg')); setTod(QS.get('time'));
+// 아이콘 타일 줄: 목록에서 자동으로 만듦(항목을 더하면 타일도 생김)
+function tileRow(el, list, onPick) {
+  for (const it of list) {
+    const b = document.createElement('button'); b.className = 'scene'; b.dataset.id = it.id;
+    b.innerHTML = `<img src="${it.icon}" alt=""><span>${it.name}</span>`;
+    b.addEventListener('click', () => { onPick(it.id); savePrefs(); });
+    el.appendChild(b);
+  }
 }
-// 장면 타일은 SCENES 목록에서 만듦(장면을 더하면 타일도 자동으로 생김)
-for (const sc of SCENES) {
-  const b = document.createElement('button'); b.className = 'scene'; b.dataset.id = sc.id;
-  b.innerHTML = `<img src="${sc.icon}" alt=""><span>${sc.name}</span>`;
-  b.addEventListener('click', () => { setScene(sc.id); savePrefs(); });
-  $('scenes').appendChild(b);
+function markOn(el, id) { el.querySelectorAll('[data-id]').forEach(b => b.classList.toggle('on', b.dataset.id === id)); }
+function setScene(id) { const sc = SCENES.find(x => x.id === id); if (!sc) return; SCENE = sc; markOn($('scenes'), sc.id); }
+function setBg(id) { const b = BGS.find(x => x.id === id); if (!b) return; BG = b; markOn($('bgs'), b.id); }
+function setTod(id) { const t = TODS.find(x => x.id === id); if (!t) return; TOD = t; markOn($('tods'), t.id); dialT = 0; }
+tileRow($('bgs'), BGS, setBg);
+tileRow($('scenes'), SCENES, setScene);
+const TOD_ICON = { live: '🕒', dawn: '🌄', morning: '🌤', dusk: '🌇', night: '🌙' };
+for (const t of TODS) {
+  const b = document.createElement('button'); b.dataset.id = t.id; b.innerHTML = `<b>${TOD_ICON[t.id]}</b>${t.name}`;
+  b.addEventListener('click', () => { setTod(t.id); savePrefs(); });
+  $('tods').appendChild(b);
+}
+// 해·달 위치 표시: 남쪽을 본 하늘(왼쪽 동, 오른쪽 서). 점선은 오늘 해가 지나는 길
+const dcv = $('dial'), dg = dcv.getContext('2d');
+var dialT = 0;   // setTod가 먼저 불릴 수 있어 var
+const hhmm = h => { h = ((h % 24) + 24) % 24; const m = Math.round(h * 60); return String(Math.floor(m / 60) % 24).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0'); };
+function moonName(p) {
+  return p < 0.03 || p > 0.97 ? '그믐·삭' : p < 0.22 ? '초승달' : p < 0.28 ? '상현달' : p < 0.47 ? '차오르는 달' : p < 0.53 ? '보름달' : p < 0.72 ? '기우는 달' : p < 0.78 ? '하현달' : '그믐달';
+}
+function drawDial(dt) {
+  if (card.hidden || !SKY) return;
+  dialT -= dt; if (dialT > 0) return; dialT = 1;
+  const dpr = Math.min(2, window.devicePixelRatio || 1), w = dcv.clientWidth, h = dcv.clientHeight;
+  if (dcv.width !== Math.round(w * dpr)) { dcv.width = Math.round(w * dpr); dcv.height = Math.round(h * dpr); }
+  dg.setTransform(dpr, 0, 0, dpr, 0, 0); dg.clearRect(0, 0, w, h);
+  const hy = h - 17, X = az => w / 2 + az / (125 * RAD) * (w / 2 - 12), Y = el => hy - Math.max(-0.35, el / (80 * RAD)) * (hy - 9);
+  const D = todDate(), A = astro(D);
+  // 오늘 해의 길
+  dg.setLineDash([2, 3]); dg.strokeStyle = 'rgba(255,214,140,.35)'; dg.lineWidth = 1; dg.beginPath();
+  for (let m = 0, first = true; m <= 1440; m += 15) {
+    const d = new Date(D); d.setHours(0, m, 0, 0); const s = astro(d).sun;
+    if (Math.abs(s.az) > 125 * RAD || s.el < -12 * RAD) { first = true; continue; }
+    if (first) dg.moveTo(X(s.az), Y(s.el)); else dg.lineTo(X(s.az), Y(s.el)); first = false;
+  }
+  dg.stroke(); dg.setLineDash([]);
+  dg.strokeStyle = 'rgba(200,215,255,.35)'; dg.beginPath(); dg.moveTo(6, hy); dg.lineTo(w - 6, hy); dg.stroke();
+  dg.fillStyle = 'rgba(220,230,255,.5)'; dg.font = '10px system-ui'; dg.textAlign = 'center';
+  [['동', -90], ['남', 0], ['서', 90]].forEach(([t, a]) => dg.fillText(t, X(a * RAD), h - 4));
+  const body = (p, r, draw) => { if (Math.abs(p.az) > 125 * RAD) return; dg.globalAlpha = p.el < 0 ? 0.3 : 1; draw(X(p.az), Y(p.el), r); dg.globalAlpha = 1; };
+  body(A.sun, 6, (x, y, r) => { dg.fillStyle = '#ffd36b'; dg.shadowColor = '#ffb640'; dg.shadowBlur = 10; dg.beginPath(); dg.arc(x, y, r, 0, 7); dg.fill(); dg.shadowBlur = 0; });
+  body(A.moon, 5.5, (x, y, r) => {
+    dg.fillStyle = 'rgba(120,130,170,.5)'; dg.beginPath(); dg.arc(x, y, r, 0, 7); dg.fill();
+    // 밝은 면: 바깥 반원 + 위상만큼 줄어든 타원
+    const k = Math.cos(2 * Math.PI * A.ph), wax = A.ph < 0.5;
+    dg.fillStyle = '#f2ecd8'; dg.beginPath();
+    dg.ellipse(x, y, r, r, 0, -Math.PI / 2, Math.PI / 2, !wax);
+    dg.ellipse(x, y, Math.abs(k) * r, r, 0, Math.PI / 2, -Math.PI / 2, (k > 0) !== wax);
+    dg.fill();
+  });
+  $('todInfo').textContent = `${TOD.id === 'live' ? '지금' : TOD.name} ${hhmm(D.getHours() + D.getMinutes() / 60)} · 일출 ${hhmm(A.rise)} · 일몰 ${hhmm(A.set)} · ${moonName(A.ph)}`;
 }
 // 단계 슬라이더: 이름 붙은 몇 단계 중 하나를 고름. 저장된 값은 가장 가까운 단계로
 function stepSlider(el, steps, cur, onPick) {
@@ -1566,7 +1888,8 @@ stepSlider($('sensS'), [
 stepSlider($('fallS'), [
   { name: '가장 빠르게', v: 0.1 }, { name: '빠르게', v: 0.2 }, { name: '보통', v: 0.3 }, { name: '느리게', v: 0.4 }, { name: '가장 느리게', v: 0.5 }
 ], fallT, st => { fallT = st.v; $('fallv').textContent = st.name + ' · ' + Math.round(st.v * 1000) + 'ms'; });
-setScene(SCENE.id); $('keys').checked = showKeys;
+setScene(SCENE.id); setBg(BG.id); setTod(TOD.id); $('keys').checked = showKeys;
+SKY = skyTarget();   // 저장된 배경·시간대로 바로 시작(전환 애니메이션 없이)
 $('keys').addEventListener('change', e => { showKeys = e.target.checked; savePrefs(); });
 $('low').addEventListener('change', e => { LOW = e.target.checked; resize(); });
 $('src').addEventListener('click', () => { openCard(false); stopCapture(true); });
