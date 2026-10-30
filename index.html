@@ -130,12 +130,12 @@
   </div>
   <div class="sec">
     <div class="row"><span>환경음 <span class="tip" tabindex="0" data-tip="빗소리와 배경에 맞는 물소리(호수 찰랑임, 파도, 도시의 웅웅거림)를 들려줘요. 빗소리는 화면의 비가 굵어질수록 커져요. 이 소리는 분석에 섞이지 않게 막아 둬요(마이크로 들을 때는 스피커 대신 이어폰을 권해요).">i</span></span><label class="sw"><input id="amb" type="checkbox"><span></span></label></div>
-    <div class="row"><span>천둥·번개 <span class="tip" tabindex="0" data-tip="정해진 간격 없이 가끔 번개가 쳐요. 비가 굵을수록 자주 치고, 가까운 번개는 줄기가 보이고 '콰직' 소리가 나요. 천둥은 거리만큼(1km에 약 3초) 늦게 들려요(환경음이 켜져 있을 때).">i</span></span><label class="sw"><input id="storm" type="checkbox" checked><span></span></label></div>
+    <div class="row"><span>천둥·번개 <span class="tip" tabindex="0" data-tip="정해진 간격 없이 가끔 번개가 쳐요. 비가 굵을수록 자주 치고, 가까운 번개는 줄기가 보이고 '콰직' 소리가 나요. 천둥은 거리만큼(1km에 약 3초) 늦게 들려요(환경음이 켜져 있을 때). A 키를 누르면 가까운 번개가 한 번 쳐요.">i</span></span><label class="sw"><input id="storm" type="checkbox" checked><span></span></label></div>
     <div class="row"><span>건반 표시</span><label class="sw"><input id="keys" type="checkbox" checked><span></span></label></div>
     <div class="row"><span>저사양 <span class="tip" tabindex="0" data-tip="입자 수와 해상도를 낮춰 느린 기기에서도 부드럽게 움직여요. 느려지면 자동으로 켜져요.">i</span></span><label class="sw"><input id="low" type="checkbox"><span></span></label></div>
     <button class="btn" id="saverBtn" title="Windows 화면보호기로 등록하고 설정 창을 열어요" hidden>🌧 화면보호기로 설정</button>
   </div>
-  <div class="keys">H 화면만 보기 · F 전체화면 · S 설정 · A 환경음 · T 천둥</div>
+  <div class="keys">H 화면만 보기 · F 전체화면 · S 설정 · M 환경음 · T 천둥 켜고 끄기 · A 천둥 한 번</div>
 </div>
 <div id="toast" class="glass off"></div>
 
@@ -266,97 +266,157 @@ function skyTarget() {
   P.astro = A;
   return P;
 }
-// 번개·천둥: 정해진 간격 없이 무작위로(비가 굵을수록 자주, 가끔은 연달아). 멀면 구름 속만 번쩍,
-// 가까우면 번개 줄기가 보이고 2~5번 끊어 번쩍임(되돌이 뇌격). 소리는 거리만큼(1km당 약 3초) 늦게 도착
-const storm = { on: true, next: rand(12, 40), strokes: [], t: 9, flash: 0, bolt: 0, a: 0, seed: 0, top: 0.15, close: false };
-function strike(dKm) {
+// 번개·천둥: 정해진 간격 없이 무작위로(비가 굵을수록 자주, 가끔은 연달아). 모양·위치·종류도 매번 무작위.
+// 가까우면 땅으로 내리치는 굵은 번개(곁가지 여러 개), 멀면 구름 속을 옆으로 기는 번개나 구름만 번쩍.
+// 한 번 칠 때 2~5번 끊어 번쩍임(되돌이 뇌격). 소리는 거리만큼(1km당 약 3초) 늦게 도착
+const storm = { on: true, next: rand(12, 40), strokes: [], t: 9, flash: 0, bolt: 0, a: 0, seed: 0, top: 0.15, type: 0, close: false };
+function strike(dKm, force) {
   const d = dKm || 0.4 + 11 * Math.pow(Math.random(), 1.6), close = d < 2.2;
-  storm.a = rand(-0.7, 0.7); storm.seed = Math.random() * 100; storm.top = rand(0.11, 0.19); storm.close = close; storm.t = 0; storm.strokes = [];
-  const n = 1 + Math.floor(Math.random() * (close ? 4 : 3)), base = (close ? 1.3 : 0.55) * Math.min(1, 2.5 / (0.6 + d));
-  for (let i = 0, tt = 0; i < n; i++) { storm.strokes.push({ t: tt, amp: base * (i ? rand(0.35, 0.9) : 1) }); tt += rand(0.04, 0.16); }
-  thunderSound(d, close);
+  storm.a = close ? rand(-0.45, 0.45) : rand(-0.6, 0.6);   // 가까운 번개는 잘 보이는 곳에 storm.seed = Math.random() * 100; storm.top = rand(0.1, 0.19); storm.close = close; storm.t = 0; storm.strokes = [];
+  storm.type = close ? 0 : (Math.random() < 0.5 ? 1 : -1);                 // -1: 줄기 없이 구름만 번쩍
+  const n = 2 + Math.floor(Math.random() * (close ? 4 : 2)), base = (close ? 1.5 : 0.6) * Math.min(1, 2.5 / (0.6 + d));
+  for (let i = 0, tt = 0; i < n; i++) { storm.strokes.push({ t: tt, amp: base * (i ? rand(0.35, 0.95) : 1), dec: rand(0.04, 0.1) }); tt += rand(0.05, 0.22); }
+  thunderSound(d, close, force);
 }
 function updateStorm(dt) {
   storm.t += dt;
   let f = 0;
-  for (const s of storm.strokes) { const u = storm.t - s.t; if (u >= 0) f += s.amp * Math.exp(-u / 0.06) * Math.min(1, u / 0.012); }
-  storm.flash = f; storm.bolt = storm.close ? Math.min(1.5, f * 1.2) : 0;
+  for (const s of storm.strokes) { const u = storm.t - s.t; if (u >= 0) f += s.amp * Math.exp(-u / s.dec) * Math.min(1, u / 0.008); }
+  // 번개 줄기는 번쩍인 뒤에도 잠깐(눈의 잔상처럼) 남음
+  storm.flash = f; storm.bolt = storm.type >= 0 ? Math.max(Math.min(1.6, f * 1.4), storm.bolt * Math.exp(-dt / 0.09)) : 0;
   if (!storm.on) return;
   storm.next -= dt * (0.3 + 1.4 * rainAmt);
   if (storm.next <= 0) { strike(); storm.next = Math.random() < 0.3 ? rand(4, 14) : 8 - Math.log(1 - Math.random()) * 55; }
 }
-function thunderSound(d, close) {
-  if (!amb || !ambOn) return;
-  const ctx = amb.ctx, t0 = ctx.currentTime + Math.min(12, d * 2.9) + 0.05;
-  const dur = (close ? 4 : 6) + rand(0, 3) + d * 0.3, lvl = Math.min(1, 1.6 / (0.6 + d));
-  const filt = (type, fr, q) => { const x = ctx.createBiquadFilter(); x.type = type; x.frequency.value = fr; if (q) x.Q.value = q; return x; };
-  // 우르릉: 번개 줄기의 여러 부분에서 온 소리가 시차를 두고 도착해 몇 번 굴러가듯 커졌다 작아짐
-  const N = 256, env = new Float32Array(N), bumps = 3 + Math.floor(Math.random() * 5);
-  for (let b = 0; b < bumps; b++) {
-    const c = Math.pow(Math.random(), 1.5) * 0.8, w = rand(0.04, 0.15), a = rand(0.4, 1) * (b ? 1 : 1.3);
-    for (let i = 0; i < N; i++) env[i] += a * Math.exp(-Math.pow((i / (N - 1) - c) / w, 2));
+// 천둥 소리 만들기(녹음 없이). 실제 천둥을 분석한 모양대로:
+// 가까우면 '지지직' 찢어지는 소리(0.1~0.3초) → '쾅'(가장 큼, 밝음) → 우르릉이 4~7초 동안 들쭉날쭉 굴러가며 점점 어두워짐.
+// 멀면 찢어지는 소리 없이 낮고 둥근 우르릉만. 소리 대부분은 80~600Hz
+function thunderBuf(ctx, d, close) {
+  const sr = ctx.sampleRate, dur = (close ? 5.5 : 6.5) + rand(0, 3) + Math.min(3, d * 0.25), n = Math.floor(sr * dur);
+  const b = ctx.createBuffer(2, n, sr), tc = close ? rand(0.1, 0.3) : 0;
+  // 굴러가는 덩어리: 번개 줄기 여러 부분에서 온 소리가 시차를 두고 도착(초당 약 7개, 크기 제각각)
+  const ev = [];
+  for (let t = tc; t < dur; t += -Math.log(1 - Math.random()) / 7) ev.push([t, Math.pow(Math.random(), 2.2) * (t < tc + 1.5 ? 1.3 : 1), rand(0.05, 0.28)]);
+  const CR = 500, nc = Math.ceil(dur * CR), env = new Float32Array(nc + 1), fcA = new Float32Array(nc + 1), crk = new Float32Array(nc + 1);
+  for (let j = 0; j <= nc; j++) {
+    const t = j / CR;
+    let e;
+    if (close) e = t < tc ? 0.1 * Math.pow(t / tc, 2) : 0.8 * Math.exp(-(t - tc) / 4.5) + 0.9 * Math.exp(-(t - tc) / 0.25);
+    else e = sstep(0, 0.7, t) * 0.7 * Math.exp(-t / 4.5);
+    let r = 0; for (const [te, a, w] of ev) if (t > te) r += a * Math.exp(-(t - te) / w) * Math.min(1, (t - te) / 0.012);
+    env[j] = e * (0.35 + r) * Math.exp(-Math.max(0, t - dur + 1.2) / 0.4);
+    fcA[j] = close ? 200 + (t < tc ? 700 : 900 * Math.exp(-(t - tc) / 0.35) + 260 * Math.exp(-(t - tc) / 2.5)) : Math.max(90, 230 - d * 8) + 120 * Math.exp(-t / 2);
+    crk[j] = close ? (t < tc ? Math.pow(t / tc, 1.5) : Math.exp(-(t - tc) / 0.25)) : 0;   // 찢어지는 소리(높은 '지직')
   }
-  for (let i = 0; i < N; i++) { const x = i / (N - 1); env[i] = Math.min(1.5, env[i]) * Math.exp(-x * 2.2) * Math.min(1, x * 40) * lvl * 0.9; }
-  env[N - 1] = 0;
-  const src = ctx.createBufferSource(); src.buffer = amb.brown; src.loop = true;
-  const g = ctx.createGain(); g.gain.value = 0; g.gain.setValueCurveAtTime(env, t0, dur);
-  const f0 = close ? 700 : Math.max(110, 260 - d * 10);
-  src.connect(filt('lowpass', f0, 0.4)).connect(filt('lowpass', f0, 0.4)).connect(g).connect(amb.out);
-  src.start(t0, Math.random() * 4); src.stop(t0 + dur + 0.1);
-  if (close) {   // 가까우면 먼저 '콰직' 찢어지는 소리
-    for (const [fr, len, a] of [[1400, 0.35, 0.7], [450, 0.9, 0.6]]) {
-      const c = ctx.createBufferSource(); c.buffer = amb.white; c.loop = true;
-      const cg = ctx.createGain(); cg.gain.setValueAtTime(0, t0); cg.gain.linearRampToValueAtTime(a * lvl, t0 + 0.006); cg.gain.exponentialRampToValueAtTime(0.0005, t0 + len);
-      c.connect(filt(fr > 1000 ? 'highpass' : 'bandpass', fr, 0.7)).connect(cg).connect(amb.out);
-      c.start(t0, Math.random() * 2); c.stop(t0 + len + 0.05);
+  const pan = clamp(storm.a * 0.8, -0.6, 0.6);
+  for (let ch = 0; ch < 2; ch++) {
+    const o = b.getChannelData(ch), cg = ch ? 1 + pan : 1 - pan;
+    let l1 = 0, l2 = 0, hl = 0, hh = 0, gr = 0;
+    for (let i = 0; i < n; i++) {
+      const jf = i / sr * CR, j = jf | 0, f = jf - j;
+      const fc = fcA[j] + (fcA[j + 1] - fcA[j]) * f, a = 1 - Math.exp(-6.2832 * fc / sr);
+      const w = Math.random() * 2 - 1;
+      l1 += a * (w - l1); l2 += a * (l1 - l2);
+      hl += 0.2 * (w - hl); hh += 0.45 * ((w - hl) - hh);            // 지직: 약 1.5~4kHz 대역만
+      if (Math.random() < 0.004) gr = Math.random();                 // 지직: 드문드문 튀는 알갱이
+      gr *= 0.995;
+      const e = env[j] + (env[j + 1] - env[j]) * f, c = crk[j];
+      o[i] = (l2 * e * Math.sqrt(4000 / fc) + hh * c * gr * 0.35) * cg;
     }
   }
+  let pk = 0; for (let ch = 0; ch < 2; ch++) for (const v of b.getChannelData(ch)) pk = Math.max(pk, Math.abs(v));
+  const g = Math.min(1, 0.3 + 1.1 / (0.6 + d)) * 0.8 / (pk || 1);
+  for (let ch = 0; ch < 2; ch++) { const o = b.getChannelData(ch); for (let i = 0; i < n; i++) o[i] *= g; }
+  return b;
+}
+function thunderSound(d, close, force) {
+  if (!(ambOn || force)) return;
+  if (!amb) { try { amb = initAmb(); } catch (e) { return; } }
+  if (amb.ctx.state !== 'running') amb.ctx.resume().catch(() => {});
+  const s = amb.ctx.createBufferSource(); s.buffer = thunderBuf(amb.ctx, d, close);
+  const t0 = amb.ctx.currentTime + Math.min(12, d * 2.9) + 0.05;
+  s.connect(amb.fx); s.start(t0); amb.busy = Math.max(amb.busy, t0 + s.buffer.duration);
 }
 
-// 바다 너울(등대 배경): 주기가 조금씩 다른 너울 넷이 겹쳐 큰 파도 몇 개가 무리 지어 오고 사이엔 잔잔해짐.
-// 각 너울의 크기는 몇 주기마다 무작위로 바뀌고 가끔 아주 큰 파도도 섞임 → 같은 무늬가 되풀이되지 않음
+// 바다(등대 배경): 실제 바닷가처럼 파도가 '세트'로 옴 — 큰 파도 3~7개가 6~9초 간격으로 오고, 사이에는 15~40초 동안 작은 파도만.
+// 먼바다에서 다가오다 물이 얕아지는 곳에서 부서지는데, 큰 파도일수록 더 멀리서 부서짐. 부서진 뒤엔 흰 물거품 띠가 밀려오고
+// 지나간 자리에 레이스 같은 거품이 남아 서서히 사라짐. 부서지는 순간 그 크기만큼 '촤아—쏴아' 소리
 const SWELL = [[9.0, 44, -0.10], [8.3, 38, 0.16], [10.4, 52, 0.04], [7.6, 33, -0.22]]
   .map(([T, L, th]) => ({ w: 2 * Math.PI / T, k: 2 * Math.PI / L, th, ph: Math.random() * 6.28, A: 0.6, At: 0.6 }));
-const swellU = new Float32Array(16);
-const sea = { amax: 1, surf: 0, sx: 0.35, age: 9, prev: 0, prev2: 0, reroll: 0 };
+const swellU = new Float32Array(16), wavesU = new Float32Array(24);
+const sea = { amax: 1, surf: 0, sx: 0.35, age: 9, reroll: 0, waves: [], next: 1, setLeft: 0, setN: 0, lullEnd: 0, t: 0 };
+function nextWave() {
+  let h;
+  if (sea.setLeft > 0) {                                             // 세트 안: 가운데 파도가 가장 큼
+    const k = sea.setN - sea.setLeft, mid = (sea.setN - 1) / 2;
+    h = rand(0.55, 0.9) * (1 - 0.35 * Math.abs(k - mid) / (mid + 1)) * (Math.random() < 0.1 ? 1.3 : 1);
+    sea.setLeft--; sea.next = rand(6, 9);
+    if (!sea.setLeft) sea.lullEnd = sea.t + rand(15, 40);
+  } else {
+    h = rand(0.12, 0.35); sea.next = rand(6.5, 11);
+    if (sea.t > sea.lullEnd) { sea.setN = sea.setLeft = 3 + Math.floor(Math.random() * 5); sea.next = rand(3, 6); }
+  }
+  sea.waves.push({ z: 150, h: Math.min(1.1, h), age: -1, seed: Math.random() });
+}
 function updateSea(dt) {
+  sea.t += dt;
+  // 먼 너울(수면 결)
   sea.reroll -= dt;
-  if (sea.reroll <= 0) { sea.reroll = rand(5, 12); const s = SWELL[Math.floor(Math.random() * 4)]; s.At = rand(0.35, 1) * (Math.random() < 0.08 ? 1.8 : 1); }
-  let eta = 0, amax = 0;
+  if (sea.reroll <= 0) { sea.reroll = rand(5, 12); const s = SWELL[Math.floor(Math.random() * 4)]; s.At = rand(0.35, 1); }
+  let amax = 0;
   for (let i = 0; i < 4; i++) {
     const s = SWELL[i];
-    s.A += (s.At - s.A) * (1 - Math.exp(-dt / 6)); s.ph -= s.w * dt;          // 파수 벡터가 카메라 쪽(-Z)이라 물마루가 이쪽으로 다가옴
-    const kx = s.k * Math.sin(s.th), kz = -s.k * Math.cos(s.th), amp = s.A * 0.045 / s.k;   // 물결 기울기 ≈ 0.045·크기(낮은 카메라라 이보다 크면 반사가 하늘 꼭대기로 튀어 바다가 새까매짐)
-    swellU[i * 4] = kx; swellU[i * 4 + 1] = kz; swellU[i * 4 + 2] = amp; swellU[i * 4 + 3] = s.ph;
-    const pr = kx * 120 + kz * 900 + s.ph;                                    // 오른쪽 먼 바위 근처 한 점
-    eta += amp * (Math.cos(pr) + 0.25 * Math.cos(2 * pr)); amax += amp * 1.25;
+    s.A += (s.At - s.A) * (1 - Math.exp(-dt / 6)); s.ph -= s.w * dt;
+    const kx = s.k * Math.sin(s.th), kz = -s.k * Math.cos(s.th), amp = s.A * 0.03 / s.k;
+    swellU[i * 4] = kx; swellU[i * 4 + 1] = kz; swellU[i * 4 + 2] = amp; swellU[i * 4 + 3] = s.ph; amax += amp * 1.25;
   }
   sea.amax = amax;
-  // 그 점을 물마루가 지나는 순간 = 바위에 파도가 부서짐(마루가 높을수록 크게, 작은 마루는 그냥 지나감)
-  if (BG.bg === 2 && sea.prev > sea.prev2 && sea.prev > eta && sea.prev > amax * 0.3) {
-    const st = clamp((sea.prev / amax - 0.3) / 0.5, 0.12, 1);
-    sea.surf = st; sea.age = 0; sea.sx = rand(0.21, 0.6); waveCrash(st);
+  // 다가오는 파도: 얕아질수록 느려짐
+  sea.next -= dt; if (sea.next <= 0) nextWave();
+  for (const w of sea.waves) {
+    w.z -= (4 + 0.05 * w.z) * dt;
+    if (w.age < 0 && w.z < 16 + 34 * w.h) {                          // 부서짐
+      w.age = 0;
+      if (BG.bg === 2) {
+        waveSound(w.h, w.z);
+        if (w.h > 0.55) { sea.surf = clamp((w.h - 0.45) / 0.55, 0.2, 1); sea.age = 0; sea.sx = rand(0.21, 0.6); }   // 큰 파도는 바위에도 부서짐
+      }
+    } else if (w.age >= 0) w.age += dt;
   }
-  sea.prev2 = sea.prev; sea.prev = eta;
+  sea.waves = sea.waves.filter(w => w.z > 1.2 && w.age < 14);
+  const ws = sea.waves.slice(-6);
+  for (let i = 0; i < 6; i++) { const w = ws[i]; wavesU.set(w ? [w.z, w.h, w.age, w.seed] : [0, 0, -1, 0], i * 4); }
   sea.age += dt; if (sea.age > 3.5 || BG.bg !== 2) sea.surf = 0;
 }
-// 파도 소리: 밀려오며 커지다가 부서지는 순간 가장 크고 밝은 소리, 그 뒤 '쏴아' 하고 빠짐
-function waveCrash(st) {
+// 파도 소리(실제 파도 소리 분석대로): 낮은 울림은 거의 없고 600Hz~2kHz 중심의 밝은 '쏴'.
+// 말리며 0.3~0.6초 커지다 부서지는 순간 가장 크고, 그 뒤 거품이 터지는 '치익' 소리가 섞인 채 3~5초 동안 빠짐
+function waveBuf(ctx, h, z) {
+  const sr = ctx.sampleRate, dur = 3 + 3 * h, n = Math.floor(sr * dur), b = ctx.createBuffer(2, n, sr);
+  const tr = rand(0.3, 0.6), far = clamp((z - 15) / 40, 0, 1), lpF = 5200 - 2200 * far;
+  for (let ch = 0; ch < 2; ch++) {
+    const o = b.getChannelData(ch);
+    let lp = 0, lp2 = 0, hp = 0, fz = 0, fzl = 0;
+    const al = 1 - Math.exp(-6.2832 * lpF / sr), ah = 1 - Math.exp(-6.2832 * 350 / sr), af = 1 - Math.exp(-6.2832 * 2600 / sr);
+    for (let i = 0; i < n; i++) {
+      const t = i / sr, w = Math.random() * 2 - 1;
+      lp += al * (w - lp); lp2 += al * (lp - lp2); hp += ah * (lp2 - hp);
+      const body = lp2 - hp;                                          // 350Hz~5kHz
+      const e = t < tr ? Math.pow(t / tr, 2.2) : Math.exp(-(t - tr) / (1.1 + 1.4 * h)) * (0.75 + 0.25 * Math.exp(-(t - tr) / 0.25));
+      if (Math.random() < 0.012 * Math.min(1, t / tr)) fz = Math.random();   // 거품 터지는 알갱이
+      fz *= 0.993; fzl += af * (w - fzl);
+      const fizz = (w - fzl) * fz * Math.exp(-Math.max(0, t - tr) / 2.5) * 0.35;
+      o[i] = (body * e * 1.4 + fizz) * (0.25 + 0.75 * h);
+    }
+  }
+  let pk = 0; for (let ch = 0; ch < 2; ch++) for (const v of b.getChannelData(ch)) pk = Math.max(pk, Math.abs(v));
+  const g = (0.2 + 0.55 * h * h) * (1 - 0.5 * far) / (pk || 1);
+  for (let ch = 0; ch < 2; ch++) { const o = b.getChannelData(ch); for (let i = 0; i < n; i++) o[i] *= g; }
+  return b;
+}
+function waveSound(h, z) {
   if (!amb || !ambOn) return;
-  const ctx = amb.ctx, t0 = ctx.currentTime + 0.05, dur = 2.6 + 2.6 * st;
-  const lp = ctx.createBiquadFilter(); lp.type = 'lowpass';
-  lp.frequency.setValueAtTime(300, t0); lp.frequency.linearRampToValueAtTime(900 + 2600 * st, t0 + 0.7); lp.frequency.exponentialRampToValueAtTime(450, t0 + dur);
-  const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t0);
-  g.gain.exponentialRampToValueAtTime(0.05 + 0.25 * st * st, t0 + 0.55 + 0.35 * st);
-  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-  const w = ctx.createBufferSource(); w.buffer = amb.white; w.loop = true;
-  const b = ctx.createBufferSource(); b.buffer = amb.brown; b.loop = true;
-  const bg = ctx.createGain(); bg.gain.value = 1.6;
-  w.connect(lp); b.connect(bg).connect(lp);
-  let node = lp.connect(g);
-  if (ctx.createStereoPanner) { const pn = ctx.createStereoPanner(); pn.pan.value = 0.2 + 0.6 * (sea.sx - 0.2); node = node.connect(pn); }
-  node.connect(amb.out);
-  for (const s of [w, b]) { s.start(t0, Math.random() * 2.5); s.stop(t0 + dur + 0.05); }
+  const s = amb.ctx.createBufferSource(); s.buffer = waveBuf(amb.ctx, h, z);
+  s.connect(amb.fx); s.start(amb.ctx.currentTime + 0.03);
 }
 let SKY = null;
 // 등대 불빛: 평소엔 한쪽(오른쪽/왼쪽)을 비추고, 4~10분에 한 번 약 8초 동안 이쪽을 지나 반대쪽으로 돌아감
@@ -449,21 +509,51 @@ uniform vec3 uZen, uMid, uHor, uCld, uHazeC, uGlowC, uSunD, uSunC, uMoonD;
 uniform float uMoonPh, uMoonL, uNight, uDay, uCover, uBeam;
 uniform float uFlash, uFlashA;     // 번개 밝기(여러 번 끊어 번쩍임), 친 곳의 가로 위치
 uniform vec4 uBolt;                // 번개 줄기: 가로 위치, 모양 씨앗, 밝기, 구름 밑 높이
-uniform vec4 uSwell[4];            // 바다 너울 성분: 파수 벡터(x,z), 진폭, 위상
-uniform float uSwellA, uSurf, uSurfX, uSurfAge;   // 너울 최대 높이, 바위에 부서지는 파도 세기·위치·경과 시간
-// 번개 줄기: 구름 밑에서 수평선까지 지그재그로 내려오는 굵은 줄기 + 곁가지 하나
-float boltX(float u){ return uBolt.x+0.03*(vnoise(vec2(u*5.0,uBolt.y))-0.5)+0.010*(vnoise(vec2(u*28.0,uBolt.y+3.0))-0.5)+0.003*(vnoise(vec2(u*110.0,uBolt.y+7.0))-0.5); }
+uniform float uBoltT;              // 0: 땅으로 내리치는 번개, 1: 구름 속을 옆으로 기어가는 번개
+// 번개 경로: 구간마다 무작위로 꺾이는 지그재그(실제 번개처럼 각진 꺾임) + 잔떨림. u=0 아래(땅) → 1 위(구름)
+float zz(float u, float n, float seed, float amp){
+  float x=u*n, i=floor(x), f=fract(x);
+  float a=hash21(vec2(i,seed))-0.5, b=hash21(vec2(i+1.0,seed))-0.5;
+  return (mix(a,b,f)*amp+(vnoise(vec2(u*90.0,seed+5.0))-0.5)*amp*0.18);
+}
+// 선분까지 밝기: 가운데는 하얗고 굵게, 바깥은 푸른 빛 번짐
+float glowLine(float dx, float px, float w){ return smoothstep(px*(1.2+w),0.0,dx)*1.8+exp(-dx/(0.0035*(0.6+w)))*0.55+exp(-dx/0.02)*0.12; }
 float bolt(float a, float h, float px){
-  if(uBolt.z<=0.001||h<0.0||h>uBolt.w) return 0.0;
-  float u=h/uBolt.w, dx=abs(a-boltX(u));
-  float v=smoothstep(px*1.4,0.0,dx)*1.6+exp(-dx/0.006)*0.18;
-  float ub=0.45+0.3*hash21(vec2(uBolt.y,1.0)), sg=hash21(vec2(uBolt.y,2.0))<0.5?-1.0:1.0;
-  if(u<ub&&u>ub-0.38){
-    float t=(ub-u)/0.38, xb=boltX(ub)+sg*t*uBolt.w*0.5+0.004*(vnoise(vec2(u*60.0,uBolt.y+9.0))-0.5);
-    float db=abs(a-xb); v+=(smoothstep(px*1.1,0.0,db)*1.0+exp(-db/0.005)*0.1)*(1.0-t);
+  if(uBolt.z<=0.001) return 0.0;
+  float sd=uBolt.y, v=0.0;
+  if(uBoltT<0.5){
+    if(h<0.0||h>uBolt.w) return 0.0;
+    float u=h/uBolt.w, dr=(hash21(vec2(sd,4.0))-0.5)*0.05;
+    float x=uBolt.x+dr*(1.0-u)+zz(u,9.0+6.0*hash21(vec2(sd,5.0)),sd,0.028);
+    v=glowLine(abs(a-x),px,1.0-u*0.4);
+    // 곁가지 2~4개: 줄기의 한 점에서 갈라져 비스듬히 내려가며 가늘어짐
+    for(int k=0;k<4;k++){
+      float fk=float(k); if(hash21(vec2(sd,fk+11.0))<0.25&&k>1) continue;
+      float ub=0.3+0.6*hash21(vec2(sd,fk+20.0)), lb=0.15+0.3*hash21(vec2(sd,fk+30.0)), sg=hash21(vec2(sd,fk+40.0))<0.5?-1.0:1.0;
+      if(u>ub||u<ub-lb) continue;
+      float t=(ub-u)/lb;
+      float xb0=uBolt.x+dr*(1.0-ub)+zz(ub,9.0+6.0*hash21(vec2(sd,5.0)),sd,0.028);
+      float xb=xb0+sg*t*uBolt.w*lb*(0.5+0.6*hash21(vec2(sd,fk+50.0)))+zz(t,6.0,sd+fk*13.0,0.012)*t;
+      v+=glowLine(abs(a-xb),px,0.0)*(1.0-t*0.8);
+    }
+  } else {
+    // 구름 속 번개: 구름 밑을 옆으로 길게 기어가며 여러 갈래로 퍼짐
+    float L=0.12+0.2*hash21(vec2(sd,6.0)), u=(a-uBolt.x)/L+0.5;
+    if(u<0.0||u>1.0) return 0.0;
+    float y=uBolt.w*0.85+zz(u,10.0,sd,0.02);
+    v=glowLine(abs(h-y),px,0.4)*0.8;
+    for(int k=0;k<3;k++){
+      float fk=float(k), ub=hash21(vec2(sd,fk+60.0)), lb=0.15+0.25*hash21(vec2(sd,fk+70.0));
+      if(u<ub||u>ub+lb) continue;
+      float t=(u-ub)/lb, yb=uBolt.w*0.85+zz(ub,10.0,sd,0.02)-t*0.03*(0.5+hash21(vec2(sd,fk+80.0)))+zz(t,5.0,sd+fk*7.0,0.01);
+      v+=glowLine(abs(h-yb),px,0.0)*(1.0-t)*0.6;
+    }
   }
   return v*uBolt.z;
 }
+uniform vec4 uSwell[4];            // 바다 너울 성분: 파수 벡터(x,z), 진폭, 위상
+uniform float uSwellA, uSurf, uSurfX, uSurfAge;
+uniform vec4 uWave[6];             // 다가오는 파도: 물마루 거리, 크기, 부서진 뒤 시간(-1: 아직), 씨앗   // 너울 최대 높이, 바위에 부서지는 파도 세기·위치·경과 시간
 uniform int uBg;
 // 해·달·별·은하수·오로라: 구름에 가려지는 것들
 vec3 celestial(vec3 d){
@@ -684,7 +774,8 @@ vec3 sky(vec3 d){
     if(uFlash>0.001||uBolt.z>0.001){
       float fa=d.x/max(d.z,0.2), fh=d.y/max(d.z,0.2), sp=exp(-pow((fa-uFlashA)/0.5,2.0));
       c+=vec3(0.70,0.76,1.0)*uFlash*(0.05+0.5*s+0.35*sp*s)*(0.35+0.65*sp)*(1.0-0.6*uDay);
-      c+=vec3(0.86,0.9,1.0)*bolt(fa,fh,1.3/uF);
+      float bv=bolt(fa,fh,1.3/uF);
+      c+=mix(vec3(0.45,0.62,1.0),vec3(1.0),clamp(bv*0.55,0.0,1.0))*bv;   // 가운데는 흰빛, 둘레는 푸른 빛
     }
   }
   if(d.z>0.05){
@@ -846,7 +937,31 @@ void main(){
         eta+=w.z*cr*vis; sl+=-w.z*(sin(ph)+0.5*sin(2.0*ph))*w.xy*vis;
       }
       hgt+=eta;
-      foam=smoothstep(uSwellA*0.45,uSwellA*0.95,eta)*smoothstep(0.35,0.75,fbm(xz*vec2(0.5,0.25)+uTime*vec2(0.05,-0.2)));
+      // 다가오는 파도: 부서지기 전엔 앞면이 가파른 물마루, 부서진 뒤엔 흰 물거품 띠 + 지나간 자리의 레이스 거품
+      for(int i=0;i<6;i++){
+        vec4 w=uWave[i]; if(w.y<=0.0) continue;
+        float zc=w.x+(3.0*sin(X*0.13+w.w*6.0)+1.6*sin(X*0.37+w.w*3.0)+0.7*sin(X*0.9+w.w*9.0))*(0.6+w.x*0.02);   // 물마루 선이 곧지 않게
+        float dz=Z-zc, wf=dz<0.0?0.9+w.y*0.9:2.5+w.y*3.0;              // 앞(카메라 쪽)은 가파르고 뒤는 완만
+        float g=exp(-dz*dz/(wf*wf)), amp=w.y*0.16;
+        hgt+=amp*g; sl.y+=-2.0*dz/(wf*wf)*g*amp;
+        float la=w.z-1.6*vnoise(vec2(X*0.025,w.w*9.0));                   // 한쪽부터 차례로 부서져 번짐
+        if(la>0.0){
+          // 흰 물거품 띠: 물마루 바로 뒤가 가장 빽빽하고(두께는 시간이 갈수록 두꺼워짐), 그 뒤로는 듬성듬성 흩어짐
+          float zs=1.0+Z/12.0, T=min(2.5,0.5+0.45*la)*zs, cov;              // 낮은 카메라에선 멀수록 얇아 보이므로 두께를 거리만큼 키움
+          float de=dz+1.6*zs*(vnoise(vec2(X*0.6,w.w*5.0+la*0.6))-0.5);   // 앞 가장자리가 들쭉날쭉
+          if(de<-0.3-0.2*la) cov=0.0;
+          else if(de<T) cov=0.62*min(1.0,la*1.2+0.35)*(1.0-0.35*smoothstep(0.0,T,de));
+          else cov=0.45*exp(-(de-T)/((2.0+la)*zs))*exp(-la*0.15);
+          cov*=0.6+0.5*w.y;
+          float n1=fbm(vec2(X*1.5,Z*2.4/zs)+w.w*10.0+vec2(0.0,uTime*0.1))*0.7+fbm(vec2(X*0.3,Z*0.6/zs)+w.w*4.0)*0.3;
+          float white=smoothstep(1.0-cov-0.05,1.0-cov+0.09,n1)*(0.7+0.3*smoothstep(0.3,0.7,fbm(vec2(X*3.0,Z*5.0)+w.w)));
+          // 지나간 자리에 남은 레이스 같은 거품 그물
+          float n2=fbm(vec2(X*1.8,Z*3.2/zs)-w.w*7.0+vec2(uTime*0.03,0.0));
+          float lace=smoothstep(T,T+3.0*zs,dz)*exp(-dz/((7.0+la*2.0)*zs))*exp(-la*0.14)*smoothstep(0.05,0.0,abs(n2-0.5));
+          foam=max(foam,max(white,lace*0.7));
+        }
+      }
+      foam*=smoothstep(1.2,3.0,Z)*(1.0-smoothstep(120.0,170.0,Z));
     }
     vec3 rp=ripple(xz,fpv)+rainField(xz,fpv);
     sl+=rp.yz;
@@ -860,7 +975,7 @@ void main(){
     col=mix(deep,refl,F);
     float emb=clamp(0.26*rp.y-0.95*rp.z,-1.0,1.0);                 // 빛을 향한 쪽은 밝고 반대쪽은 어둡게(엠보싱)
     col+=vec3(0.55,0.62,0.9)*max(emb,0.0)*0.22 - vec3(0.03,0.04,0.07)*max(-emb,0.0)*1.2;
-    col=mix(col,mix(uHor*0.75+0.06,vec3(0.86,0.9,0.95),uDay*0.7),foam*0.7);
+    col=mix(col,mix(uHor*1.05+0.1,vec3(0.96,0.97,0.99),0.35+0.6*uDay),clamp(foam*1.3,0.0,1.0)*0.95);   // 거품은 주변 빛을 받은 흰색(물보다 확실히 밝게)
     float hz=1.0-exp(-Z*0.0035);
     col=mix(col,uHazeC,hz*0.45);
   }
@@ -1776,8 +1891,8 @@ function commonUniforms(p, t) {
     const nrm = v => { const l = Math.hypot(v[0], v[1], v[2]); return [v[0] / l, v[1] / l, v[2] / l]; };
     v3('uZen', SKY.zen); v3('uMid', SKY.mid); v3('uHor', SKY.hor); v3('uCld', SKY.cld); v3('uHazeC', SKY.haze); v3('uGlowC', SKY.glow);
     v3('uDeepC', SKY.deep); v3('uSunC', SKY.sunC); v3('uSunD', nrm(SKY.sunD)); v3('uMoonD', nrm(SKY.moonD));
-    v1('uMoonPh', SKY.moonPh); v1('uMoonL', SKY.moonL); v1('uNight', SKY.night); v1('uDay', SKY.day); v1('uCover', BG.cover); v1('uBeam', beam.ph); v1('uFlash', storm.flash); v1('uFlashA', storm.a); if (p.u.uBolt) gl.uniform4f(p.u.uBolt, storm.a, storm.seed, storm.bolt, storm.top);
-    if (p.u.uSwell) { gl.uniform4fv(p.u.uSwell, swellU); v1('uSwellA', sea.amax); v1('uSurf', sea.surf); v1('uSurfX', sea.sx); v1('uSurfAge', sea.age); }
+    v1('uMoonPh', SKY.moonPh); v1('uMoonL', SKY.moonL); v1('uNight', SKY.night); v1('uDay', SKY.day); v1('uCover', BG.cover); v1('uBeam', beam.ph); v1('uFlash', storm.flash); v1('uFlashA', storm.a); if (p.u.uBolt) gl.uniform4f(p.u.uBolt, storm.a, storm.seed, storm.bolt, storm.top); v1('uBoltT', storm.type > 0 ? 1 : 0);
+    if (p.u.uSwell) { gl.uniform4fv(p.u.uSwell, swellU); v1('uSwellA', sea.amax); gl.uniform4fv(p.u.uWave, wavesU); v1('uSurf', sea.surf); v1('uSurfX', sea.sx); v1('uSurfAge', sea.age); }
     if (p.u.uBg) gl.uniform1i(p.u.uBg, BG.bg);
   }
 }
@@ -1999,7 +2114,7 @@ const PREF = 'rainkeys.prefs';
 const AMBP = {
   neon: { water: 0.22, lfo: 0.23, wash: 0, hum: 0 },            // 호숫가 물가에 찰랑이는 소리
   city: { water: 0.12, lfo: 0.2, wash: 0, hum: 0.22 },          // 멀리서 들리는 도시의 낮은 웅웅거림
-  lighthouse: { water: 0.35, lfo: 0.07, wash: 0, hum: 0 },      // 바다의 낮은 울림(부서지는 파도 소리는 waveCrash가 하나씩 냄)
+  lighthouse: { water: 0.12, lfo: 0.07, wash: 0.05, hum: 0 },     // 멀리서 끊임없이 부서지는 잔파도(큰 파도 소리는 waveSound가 하나씩 냄)
   aurora: { water: 0.18, lfo: 0.18, wash: 0, hum: 0 }
 };
 let amb = null, ambOn = false, ambT = 0, ambOff = 0;
@@ -2045,7 +2160,8 @@ function initAmb() {
   const lfoW = gain(0); lfo.connect(lfoW); lfoW.connect(wash.gain);
   // 도시: 멀리서 들리는 낮은 웅웅거림
   const hum = gain(0); chain(loop(brown, 0.6), filt('lowpass', 180), hum, out);
-  return { ctx, out, rain, water, wash, lfo, lfoW, hum, white, brown };
+  const fx = ctx.createGain(); fx.gain.value = 1; fx.connect(ctx.destination);   // 천둥·파도(한 번씩 나는 소리)
+  return { ctx, out, fx, rain, water, wash, lfo, lfoW, hum, white, brown, busy: 0 };
 }
 function setAmb(on) {
   ambOn = on; $('amb').checked = on;
@@ -2063,14 +2179,14 @@ function updateAmb(dt) {
   amb.lfo.frequency.setTargetAtTime(p.lfo, t, 1.5); amb.wash.gain.setTargetAtTime(p.wash, t, 1.5); amb.lfoW.gain.setTargetAtTime(p.wash, t, 1.5);
   // 끈 뒤 소리가 다 줄어들면 오디오를 멈춰 CPU를 아낌
   ambOff = ambOn ? 0 : ambOff + 0.25;
-  if (ambOff > 2 && amb.ctx.state === 'running') amb.ctx.suspend().catch(() => {});
+  if (ambOff > 2 && amb.ctx.state === 'running' && amb.ctx.currentTime > amb.busy) amb.ctx.suspend().catch(() => {});
 }
 $('amb').addEventListener('change', e => { setAmb(e.target.checked); savePrefs(); });
 $('storm').addEventListener('change', e => { storm.on = e.target.checked; savePrefs(); });
 // 저장된 설정이 '켬'이면 첫 클릭·키 입력 때 시작(브라우저는 사용자 조작 전 소리를 막음)
 function ambFirstGesture(ev) {
   ['pointerdown', 'keydown'].forEach(ev => window.removeEventListener(ev, ambFirstGesture));
-  if (ev && ev.type === 'keydown' && ev.key.toLowerCase() === 'a') { ambOn = false; return; }   // A 키는 아래 단축키가 켜 줌
+  if (ev && ev.type === 'keydown' && ev.key.toLowerCase() === 'm') { ambOn = false; return; }   // M 키는 아래 단축키가 켜 줌
   if (ambOn) setAmb(true);
 }
 function savePrefs() { try { localStorage.setItem(PREF, JSON.stringify({ sens, fallT, showKeys, scene: SCENE.id, bg: BG.id, tod: TOD.id, amb: ambOn, storm: storm.on })); } catch (e) {} }
@@ -2198,7 +2314,8 @@ window.addEventListener('keydown', e => {
   else if (k === 's') openCard(card.hidden);
   else if (k === 'escape') openCard(false);
   else if (k === 't') { storm.on = !storm.on; $('storm').checked = storm.on; savePrefs(); toast(storm.on ? '천둥·번개 켬' : '천둥·번개 끔'); }
-  else if (k === 'a') { setAmb(!ambOn); savePrefs(); toast(ambOn ? '환경음 켬' : '환경음 끔'); }
+  else if (k === 'a') { strike(rand(0.5, 1.8), true); }                  // 테스트: 가까운 번개·천둥 한 번
+  else if (k === 'm') { setAmb(!ambOn); savePrefs(); toast(ambOn ? '환경음 켬' : '환경음 끔'); }
 });
 const canSys = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) && !window.matchMedia('(pointer:coarse)').matches;
 if (HOST) $('sysnote').textContent = '이 앱은 기기에서 나오는 모든 소리를 공유 창이나 마이크 권한 없이 바로 들어요. 소리는 그대로 들리고 분석만 합니다.';
