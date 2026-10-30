@@ -20,7 +20,7 @@
   #dock #src i{position:absolute;right:5px;bottom:5px;width:7px;height:7px;border-radius:50%;background:#4b5372;transition:background .1s,box-shadow .1s}
   body.idle #dock,body.hideui #dock{opacity:0;pointer-events:none}
   body.idle{cursor:none}
-  #card{position:fixed;right:max(16px,env(safe-area-inset-right));bottom:calc(max(16px,env(safe-area-inset-bottom)) + 52px);width:300px;max-width:calc(100vw - 32px);
+  #card{position:fixed;right:max(16px,env(safe-area-inset-right));bottom:calc(max(16px,env(safe-area-inset-bottom)) + 52px);width:320px;max-width:calc(100vw - 32px);
     border-radius:18px;padding:16px 16px 12px;z-index:7;font-size:13px;display:flex;flex-direction:column;gap:14px;
     transition:opacity .2s,transform .2s;transform-origin:100% 100%;max-height:calc(100vh - 90px);overflow-y:auto;overscroll-behavior:contain}
   #card[hidden]{display:flex;opacity:0;transform:translateY(8px) scale(.98);pointer-events:none;visibility:hidden}
@@ -33,24 +33,20 @@
   .tip::after{content:attr(data-tip);position:absolute;left:-8px;bottom:22px;width:220px;padding:8px 10px;border-radius:10px;background:#141a36;border:1px solid rgba(160,190,255,.25);
     font-size:11.5px;line-height:1.5;font-weight:400;letter-spacing:0;color:#d6e4ff;opacity:0;pointer-events:none;transition:opacity .15s;z-index:2}
   .tip:hover::after,.tip:focus::after{opacity:1}
-  #meter{width:100%;height:46px;display:block;border-radius:10px;background:rgba(0,0,0,.28);cursor:ns-resize;touch-action:none;position:static}
   .seg{display:flex;gap:4px}
   .seg button,.btn{flex:1;background:rgba(120,160,255,.1);color:#dce8ff;border:1px solid rgba(160,190,255,.2);border-radius:9px;padding:6px 4px;font:inherit;font-size:12px;cursor:pointer}
   .seg button:hover,.btn:hover{background:rgba(120,160,255,.22)}
   .seg button.on{background:rgba(127,180,255,.32);border-color:rgba(160,200,255,.5);color:#fff}
   #card input[type=range]{width:100%;accent-color:#7fb4ff;margin:0}
-  .fine{display:flex;align-items:center;gap:8px;font-size:11px;opacity:.75;white-space:nowrap}
-  .hint{font-size:10.5px;opacity:.5;margin-top:-3px}
   .seg button{display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 2px;line-height:1.15}
   .seg button b{font-size:16px;font-weight:400}
-  #devs button{font-size:10.5px;white-space:nowrap;letter-spacing:-.02em}
-  details .hint{margin-top:0;line-height:1.45}
-  details summary{font-size:11px;opacity:.55;cursor:pointer;list-style:none;display:flex;gap:6px;align-items:center;user-select:none}
-  details summary::-webkit-details-marker{display:none}
-  details summary::before{content:'▸';transition:transform .2s}
-  details[open] summary::before{transform:rotate(90deg)}
-  details summary .val{margin-left:auto;font-variant-numeric:tabular-nums}
-  details[open]{display:flex;flex-direction:column;gap:8px}
+  /* 단계 슬라이더: 막대 + 눈금마다 이름(눌러도 이동) */
+  .steps{padding:0 24px}
+  .steps input{width:100%;margin:0;accent-color:#7fb4ff;cursor:pointer}
+  .steps div{position:relative;height:15px;margin-top:3px}
+  .steps span{position:absolute;top:0;transform:translateX(-50%);font-size:10px;opacity:.45;cursor:pointer;white-space:nowrap;letter-spacing:-.03em;transition:opacity .15s}
+  .steps span:hover{opacity:.8}
+  .steps span.on{opacity:1;color:#fff;font-weight:600}
   .scenes{display:grid;grid-template-columns:repeat(auto-fill,minmax(80px,1fr));gap:6px}
   .scene{padding:0;border:1px solid rgba(160,190,255,.2);border-radius:11px;overflow:hidden;cursor:pointer;background:none;color:#dce8ff;font:inherit;font-size:11.5px;text-align:center}
   .scene i{display:block;height:46px;background-size:cover}
@@ -110,24 +106,12 @@
     <div class="scenes" id="scenes"></div>
   </div>
   <div class="sec">
-    <h3>곡 분위기 <span class="tip" tabindex="0" data-tip="잔잔한 곡일수록 여린 음까지 빗방울로 만들어요. 시끄러운 곡은 또렷한 음만 골라서 비가 너무 많아지지 않게 해요.">i</span></h3>
-    <div class="seg" id="presets">
-      <button data-s="0.82"><b>🌙</b>조용한 곡</button><button data-s="0.5"><b>🎵</b>보통</button><button data-s="0.22"><b>🔥</b>시끄러운 곡</button>
-    </div>
-    <details><summary>직접 조절 <span class="val" id="sensv"></span></summary>
-      <canvas id="meter" title="위아래로 끌어 문턱 조절"></canvas>
-      <div class="hint">점선을 넘은 분홍 막대 = 빗방울 · 점선을 끌어 조절</div>
-    </details>
+    <h3>곡 분위기 <span class="tip" tabindex="0" data-tip="조용한 곡일수록 여린 음까지 빗방울로 만들어요. 시끄러운 곡은 또렷한 음만 골라 비가 너무 많아지지 않게 해요.">i</span><span class="val" id="sensv"></span></h3>
+    <div class="steps" id="sensS"></div>
   </div>
   <div class="sec">
-    <h3>듣는 기기 <span class="tip" tabindex="0" data-tip="지금 소리를 듣는 기기를 고르면, 방울이 물에 닿는 순간이 귀에 들리는 소리와 맞춰져요. 블루투스는 소리가 조금 늦게 들려서 그만큼 늦춰요.">i</span></h3>
-    <div class="seg" id="devs">
-      <button data-f="0.12"><b>🔊</b>스피커</button><button data-f="0.12"><b>🎧</b>유선 이어폰</button><button data-f="0.28"><b>🎧</b>블루투스</button><button data-f="0.2"><b>📺</b>TV·모니터</button>
-    </div>
-    <details><summary>직접 조절 <span class="val" id="fallv"></span></summary>
-      <label class="fine">빨리 <input id="fall" type="range" min="0.1" max="0.8" step="0.01" value="0.12"> 늦게</label>
-      <div class="hint">방울이 소리보다 먼저 닿으면 →, 늦게 닿으면 ←</div>
-    </details>
+    <h3>비 떨어지는 속도 <span class="tip" tabindex="0" data-tip="방울이 건반에서 물까지 떨어지는 시간이에요. 물에 닿는 순간이 소리보다 빠르면 느리게, 늦으면 빠르게 옮겨 보세요. 블루투스 이어폰은 보통 '느리게'가 잘 맞아요.">i</span><span class="val" id="fallv"></span></h3>
+    <div class="steps" id="fallS"></div>
   </div>
   <div class="sec">
     <div class="row"><span>건반 표시</span><label class="sw"><input id="keys" type="checkbox" checked><span></span></label></div>
@@ -696,7 +680,7 @@ window.addEventListener('resize', resize);
 const drops = [], parts = [], crowns = [], jets = [], craters = [], bubbles = [], floaters = [], flashes = [], timers = [], EV = [];
 const keyGlow = new Float32Array(128);
 let started = false, showKeys = true;
-let fallT = 0.12, sens = 0.5, hitCount = 0;
+let fallT = 0.3, sens = 0.5, hitCount = 0;
 const hitLog = [];
 let simT = 0, fxT = 0;
 // 스플래시·파문의 시간 배속. 3이면 거의 실제 속도(이전 버전은 약 3배 슬로모션)
@@ -754,7 +738,6 @@ function lowFix(c) {
   return c.s;
 }
 let soundLvl = 0;   // 반음별 마지막 트리거 시각
-let onsetNow = 0;   // 이번 프레임에 새로 솟은 음의 세기(dB, 감도 미터용)
 // 피아노 스펙트럼은 저음이 훨씬 강함 → 높은 음일수록 바닥 기준을 낮춰 공정하게(왼쪽 쏠림 방지)
 const tilt = s => Math.min(16, Math.max(0, s + MIN_MIDI - 42) * 0.3);
 
@@ -810,13 +793,11 @@ function analyze(dt) {
   // 2) 반음별 온셋(기준선 대비 급상승)
   const T = lerp(10, 4, sens), base = 1 - Math.exp(-dt / 0.35);
   const cands = [];
-  let oPk = 0;
   for (let s = 0; s < NS; s++) {
     const m = L[s];
     if (slow[s] === 0) slow[s] = m;
     cool[s] -= dt;
     const over = m - slow[s], rise = m - prevL[s];
-    if (rise > 2.5 && over > oPk && m > floorDb - tilt(s)) oPk = over;   // 막 솟은 순간만(미터가 막대로 뭉개지지 않게)
     if (cool[s] <= 0 && over > T + Math.max(0, s + MIN_MIDI - 96) * 0.06 && rise > 0.4 && m > floorDb - tilt(s)) {
       // 이웃 반음이 이미 울리는 중이면 누설/떨림으로 간주
       let nb = false;
@@ -826,7 +807,6 @@ function analyze(dt) {
     prevL[s] = m;
     slow[s] += (m - slow[s]) * base;
   }
-  onsetNow = oPk;
   const now = clk();
   while (recent.length && now - recent[0].t > 0.4) recent.shift();
   for (const c of cands) { c.t = now; pending.push(c); cool[c.s] = 0.1; }
@@ -901,7 +881,7 @@ function spawnNote(s, str, tDet) {
   const T = fallT * rand(0.95, 1.05);
   keyGlow[midi] = 1;   // 소리가 들린 순간 해당 건반이 켜짐
   makeDrop({ kind: 'hit', tImp: simT + T, T, Z: rand(1.7, 4.2), fracX, sz, e: sz * rand(0.9, 1.15), hue: keyHue(midi), midi, startY: showKeys ? KB_Y + KB_H : -40 });
-  hitCount++; meterHit = 1; hitLog.push({ midi, t: tDet || clk() }); if (hitLog.length > 2000) hitLog.shift();
+  hitCount++; hitLog.push({ midi, t: tDet || clk() }); if (hitLog.length > 2000) hitLog.shift();
 }
 
 /* ======================================================================
@@ -1526,15 +1506,12 @@ function frame(ts) {
     if (slowSec >= 3 && !LOW) { LOW = true; $('low').checked = true; resize(); }
   }
   if (!manual) { step(Math.min(0.05, rdt)); draw(); }
-  drawMeter(); updateSrc();
+  updateSrc();
   requestAnimationFrame(frame);
 }
 
 /* ---------- 설정 UI: 평소엔 아이콘 3개, ⚙로 카드 ---------- */
 const card = $('card'), gear = $('gear');
-// 감도 ↔ 온셋 문턱(dB): sens 0 → 10dB, 1 → 4dB
-const thrDb = () => lerp(10, 4, sens);
-const M_DB = 20;
 // 설정은 이 브라우저에만 저장(없어도 기본값으로 동작)
 const PREF = 'rainkeys.prefs';
 function savePrefs() { try { localStorage.setItem(PREF, JSON.stringify({ sens, fallT, showKeys, scene: SCENE.id })); } catch (e) {} }
@@ -1544,16 +1521,6 @@ try {
 } catch (e) {}
 // 주소의 ?scene= 이 저장값보다 우선(예전 /v1/ 주소는 ?scene=lively 로 옴)
 setScene(new URLSearchParams(location.search).get('scene'));
-function setSens(v) {
-  sens = clamp(v, 0, 1);
-  $('sensv').textContent = sens > 0.66 ? '여린 음까지' : sens < 0.36 ? '또렷한 음만' : '중간';
-  document.querySelectorAll('#presets button').forEach(b => b.classList.toggle('on', Math.abs(+b.dataset.s - sens) < 0.03));
-}
-function setFall(v, dev) {
-  fallT = clamp(v, 0.1, 0.8); $('fall').value = fallT; $('fallv').textContent = Math.round(fallT * 1000) + 'ms';
-  // 같은 값의 기기가 둘(스피커·유선)이면 누른 쪽만 켬
-  document.querySelectorAll('#devs button').forEach(b => b.classList.toggle('on', dev ? b === dev : Math.abs(+b.dataset.f - fallT) < 0.005 && b === document.querySelector(`#devs button[data-f="${b.dataset.f}"]`)));
-}
 function setScene(id) {
   const sc = SCENES.find(x => x.id === id); if (!sc) return;
   SCENE = sc;
@@ -1566,11 +1533,32 @@ for (const sc of SCENES) {
   b.addEventListener('click', () => { setScene(sc.id); savePrefs(); });
   $('scenes').appendChild(b);
 }
-setSens(sens); setFall(fallT); setScene(SCENE.id); $('keys').checked = showKeys;
-document.querySelectorAll('#presets button').forEach(b => b.addEventListener('click', () => { setSens(+b.dataset.s); savePrefs(); }));
-document.querySelectorAll('#devs button').forEach(b => b.addEventListener('click', () => { setFall(+b.dataset.f, b); savePrefs(); }));
-$('fall').addEventListener('input', e => setFall(+e.target.value));
-$('fall').addEventListener('change', savePrefs);
+// 단계 슬라이더: 이름 붙은 몇 단계 중 하나를 고름. 저장된 값은 가장 가까운 단계로
+function stepSlider(el, steps, cur, onPick) {
+  const inp = document.createElement('input'), row = document.createElement('div');
+  inp.type = 'range'; inp.min = 0; inp.max = steps.length - 1; inp.step = 1;
+  // 이름을 막대의 눈금 바로 아래에 놓음(막대 양옆 여백만큼 끝 이름이 들어갈 자리)
+  row.innerHTML = steps.map((st, k) => `<span style="left:calc(8px + (100% - 16px) * ${k / (steps.length - 1)})">${st.short || st.name}</span>`).join('');
+  el.append(inp, row);
+  const pick = (i, save) => {
+    inp.value = i; [...row.children].forEach((x, k) => x.classList.toggle('on', k === i));
+    onPick(steps[i]); if (save) savePrefs();
+  };
+  inp.addEventListener('input', () => pick(+inp.value, true));
+  [...row.children].forEach((x, k) => x.addEventListener('click', () => pick(k, true)));
+  let best = 0; steps.forEach((st, k) => { if (Math.abs(st.v - cur) < Math.abs(steps[best].v - cur)) best = k; });
+  pick(best, false);
+}
+// 곡 분위기 → 감도(높을수록 여린 음까지 빗방울)
+stepSlider($('sensS'), [
+  { name: '아주 조용한 곡', short: '아주 조용', v: 0.9 }, { name: '조용한 곡', short: '조용', v: 0.7 }, { name: '보통', v: 0.5 },
+  { name: '시끄러운 곡', short: '시끄러움', v: 0.3 }, { name: '아주 시끄러운 곡', short: '아주 시끄러움', v: 0.12 }
+], sens, st => { sens = st.v; $('sensv').textContent = st.name; });
+// 비 떨어지는 속도 → 건반에서 물까지 걸리는 시간(= 소리와 착수 사이의 싱크)
+stepSlider($('fallS'), [
+  { name: '가장 빠르게', v: 0.1 }, { name: '빠르게', v: 0.2 }, { name: '보통', v: 0.3 }, { name: '느리게', v: 0.4 }, { name: '가장 느리게', v: 0.5 }
+], fallT, st => { fallT = st.v; $('fallv').textContent = st.name + ' · ' + Math.round(st.v * 1000) + 'ms'; });
+setScene(SCENE.id); $('keys').checked = showKeys;
 $('keys').addEventListener('change', e => { showKeys = e.target.checked; savePrefs(); });
 $('low').addEventListener('change', e => { LOW = e.target.checked; resize(); });
 $('src').addEventListener('click', () => { openCard(false); stopCapture(true); });
@@ -1589,30 +1577,6 @@ window.addEventListener('pointerdown', e => { if (!card.hidden && !card.contains
 let toastT = 0;
 function toast(t) { const el = $('toast'); el.textContent = t; el.classList.remove('off'); clearTimeout(toastT); toastT = setTimeout(() => el.classList.add('off'), 2200); }
 
-// 감도 미터: 새로 솟은 음의 세기 막대 + 문턱 점선(넘으면 빗방울)
-const mcv = $('meter'), mg = mcv.getContext('2d'), mHist = new Float32Array(90);
-let meterHit = 0, mHead = 0;
-function drawMeter() {
-  mHist[mHead] = analyser ? onsetNow : 0; mHead = (mHead + 1) % mHist.length;
-  if (card.hidden) return;
-  const dpr = Math.min(2, window.devicePixelRatio || 1), w = mcv.clientWidth, h = mcv.clientHeight;
-  if (mcv.width !== Math.round(w * dpr)) { mcv.width = Math.round(w * dpr); mcv.height = Math.round(h * dpr); }
-  mg.setTransform(dpr, 0, 0, dpr, 0, 0); mg.clearRect(0, 0, w, h);
-  const yOf = db => h - 4 - (h - 10) * clamp(db / M_DB, 0, 1), thr = thrDb(), ty = yOf(thr), n = mHist.length, bw = w / n;
-  for (let k = 0; k < n; k++) {
-    const v = mHist[(mHead + k) % n]; if (v < 0.3) continue;
-    mg.fillStyle = v > thr ? 'rgba(255,150,210,.95)' : 'rgba(127,170,255,.4)';
-    const y = yOf(v); mg.fillRect(k * bw, y, Math.max(1, bw - 1), h - 4 - y);
-  }
-  meterHit = Math.max(0, meterHit - 0.06);
-  mg.strokeStyle = `rgba(255,${200 - 60 * meterHit},${230 - 30 * meterHit},${0.75 + 0.25 * meterHit})`; mg.lineWidth = 1.5 + meterHit;
-  mg.setLineDash([4, 3]); mg.beginPath(); mg.moveTo(0, ty); mg.lineTo(w, ty); mg.stroke(); mg.setLineDash([]);
-}
-let mDrag = false;
-const meterAt = e => { const r = mcv.getBoundingClientRect(), db = (r.bottom - 4 - e.clientY) / (r.height - 10) * M_DB; setSens((10 - clamp(db, 4, 10)) / 6); };
-mcv.addEventListener('pointerdown', e => { mDrag = true; mcv.setPointerCapture(e.pointerId); meterAt(e); });
-mcv.addEventListener('pointermove', e => { if (mDrag) meterAt(e); });
-mcv.addEventListener('pointerup', () => { mDrag = false; savePrefs(); });
 
 // 단축키: H 화면만 보기 · F 전체화면 · S 설정 · Esc 닫기
 window.addEventListener('keydown', e => {
