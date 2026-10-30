@@ -187,7 +187,7 @@ const rippleTau = s => SCENE.rippleTau[0] + SCENE.rippleTau[1] * s;
 const BGS = [
   { id: 'neon', name: '네온 호수', bg: 0, calm: 0.035, cover: 1.0, icon: 'assets/bg-neon.png',
     night: { zen: [0.04, 0.04, 0.10], mid: [0.13, 0.12, 0.29], hor: [0.42, 0.29, 0.55], cld: [0.10, 0.05, 0.12], haze: [0.24, 0.18, 0.38], deep: [0.016, 0.045, 0.088] } },
-  { id: 'han', name: '한강', bg: 1, calm: 0.05, cover: 0.85, icon: 'assets/bg-han.png',
+  { id: 'city', name: '도시', bg: 1, calm: 0.05, cover: 0.85, icon: 'assets/bg-city.png',
     night: { zen: [0.03, 0.03, 0.07], mid: [0.12, 0.10, 0.17], hor: [0.36, 0.25, 0.27], cld: [0.12, 0.07, 0.06], haze: [0.24, 0.18, 0.21], deep: [0.014, 0.03, 0.05] } },
   { id: 'lighthouse', name: '등대 바다', bg: 2, calm: 0.11, cover: 0.8, icon: 'assets/bg-lighthouse.png',
     night: { zen: [0.015, 0.02, 0.05], mid: [0.05, 0.06, 0.12], hor: [0.12, 0.14, 0.22], cld: [0.03, 0.03, 0.05], haze: [0.10, 0.12, 0.18], deep: [0.008, 0.02, 0.04] } },
@@ -263,6 +263,19 @@ function skyTarget() {
   return P;
 }
 let SKY = null;
+// 등대 불빛: 평소엔 한쪽(오른쪽/왼쪽)을 비추고, 4~10분에 한 번 약 8초 동안 이쪽을 지나 반대쪽으로 돌아감
+const BEAM_R = 0.35, BEAM_L = -Math.PI + 0.35;
+const beam = { side: 1, ph: BEAM_R, from: BEAM_R, t: -1, next: rand(240, 600) };
+function updateBeam(dt) {
+  beam.next -= dt;
+  if (beam.t < 0 && beam.next <= 0) { beam.side = -beam.side; beam.from = beam.ph; beam.t = 0; beam.next = rand(240, 600); }
+  if (beam.t >= 0) {
+    beam.t += dt / 8;
+    const to = beam.side > 0 ? BEAM_R : BEAM_L, e = sstep(0, 1, Math.min(1, beam.t));
+    beam.ph = beam.from + (to - beam.from) * e;
+    if (beam.t >= 1) beam.t = -1;
+  }
+}
 function updateSky(dt) {
   const T = skyTarget();
   if (!SKY) { SKY = T; return; }
@@ -337,7 +350,7 @@ vec3 decor(vec2 pr){
 // ---------- 하늘: 시간대(해·달·하늘색)와 배경(uBg)은 JS가 유니폼으로 넘김 ----------
 // 해·달 방향은 실제 고도·방위를 화면에 맞게 눌러 담은 것(남쪽을 보고 있음: 왼쪽 동, 오른쪽 서)
 uniform vec3 uZen, uMid, uHor, uCld, uHazeC, uGlowC, uSunD, uSunC, uMoonD;
-uniform float uMoonPh, uMoonL, uNight, uDay, uCover;
+uniform float uMoonPh, uMoonL, uNight, uDay, uCover, uBeam;
 uniform int uBg;
 // 해·달·별·은하수·오로라: 구름에 가려지는 것들
 vec3 celestial(vec3 d){
@@ -376,7 +389,7 @@ vec3 celestial(vec3 d){
       float k=cos(6.2831853*uMoonPh), sx=uMoonPh<0.5?p.x:-p.x;
       float lit=smoothstep(-0.06,0.06,sx-k*sqrt(max(0.0,1.0-p.y*p.y)));
       float mare=0.8+0.2*vnoise(p*2.6+3.0);
-      c+=vec3(1.0,0.97,0.88)*(lit*mare*1.5+0.03)*smoothstep(1.0,0.88,sqrt(r2))*uMoonL;
+      c+=vec3(1.0,0.97,0.88)*(lit*mare*0.95+0.025)*smoothstep(1.0,0.88,sqrt(r2))*uMoonL;
     }
   }
   return c;
@@ -389,48 +402,81 @@ vec3 bgNeon(vec3 d, vec2 pr, vec3 c){
   float q=max(dot(d,LD2),0.0); c+=vec3(1.0,0.70,0.28)*(0.38*pow(q,60.0)+0.4*pow(q,500.0))*nl;
   return c;
 }
-// 배경 2: 한강 — 강 건너 빌딩 숲, 남산과 타워, 높은 타워, 아치 다리와 가로등
-vec3 bgHan(float a, float h, float px, vec3 c){
-  float hill=0.026*exp(-pow((a-0.2)/0.075,2.0))+0.012*exp(-pow((a+0.47)/0.12,2.0));
-  const float WA=0.0105;
-  float id=floor(a/WA), hh=hash21(vec2(id,3.1)), bx=fract(a/WA);
-  float hb=0.007+0.03*hh*hh*(0.6+0.8*exp(-pow(a/0.35,2.0)));
-  if(hash21(vec2(id,7.7))>0.9) hb+=0.016;
-  if(bx<0.06||bx>0.94) hb*=0.55;
-  float lt=abs(a+0.30), ltW=0.0075*(1.0-clamp(h/0.118,0.0,1.0))+0.0006;
-  float inLt=(h<0.118&&lt<ltW)?1.0:0.0;
-  float ns=abs(a-0.2), inNs=0.0;
-  if(ns<0.0011&&h<0.066) inNs=1.0;
-  if(abs(h-0.052)<0.0035&&ns<0.0042) inNs=1.0;
-  if(ns<0.0004&&h<0.08) inNs=1.0;
-  float inB=smoothstep(px,0.0,h-max(hb,hill));
-  float m=max(inB,max(inLt,inNs));
-  if(m>0.0){
-    vec3 sc=mix(mix(vec3(0.012,0.014,0.03),vec3(0.24,0.26,0.30),uDay),uHor,0.3+0.25*uDay);
-    if(h<hb&&h>0.0015){
-      vec2 wg=vec2(a/0.0017,h/0.0019), wi=floor(wg), wf=fract(wg);
-      float on=step(0.62,hash21(wi+id*3.1));
-      float win=step(0.25,wf.x)*step(wf.x,0.75)*step(0.3,wf.y)*step(wf.y,0.8);
-      sc+=(hash21(wi+7.0)<0.7?vec3(1.0,0.78,0.48):vec3(0.75,0.85,1.0))*on*win*0.55*uNight;
-    }
-    if(inLt>0.5) sc+=vec3(0.75,0.85,1.0)*0.22*uNight*step(0.5,fract(h*180.0));
-    c=mix(c,sc,m);
+// 배경 2: 도시 — 멀리서부터 산 능선 · 먼 빌딩 숲 · 가까운 빌딩 숲 · 다리(달리는 차 불빛) 순으로 겹친 3D 원경.
+// 멀수록 대기에 묻혀 흐리고, 낮에는 해가 비추는 쪽 벽이 밝고 반대쪽이 어두움. 밤에는 층마다 다른 창문 불빛
+// 건물 한 겹: 셀마다 폭·높이·지붕이 다른 건물(이웃 셀과 겹침). 반환 (지붕 높이 | 없으면 -1, 왼쪽 끝, 폭, id)
+vec4 skyline(float a, float W, float hMin, float hMax, float seed){
+  vec4 best=vec4(-1.0,0.0,1.0,0.0);
+  float id0=floor(a/W);
+  for(int k=-1;k<=1;k++){
+    float id=id0+float(k);
+    float r1=hash21(vec2(id,seed)), r2=hash21(vec2(id,seed+1.7)), r3=hash21(vec2(id,seed+3.1)), r4=hash21(vec2(id,seed+5.3));
+    float cx=(id+0.5+(r2-0.5)*0.7)*W, hw=W*(0.28+0.55*r3);
+    float u=abs(a-cx)/hw;
+    if(u>1.0) continue;
+    float H=hMin+(hMax-hMin)*pow(r1,2.4)*(0.55+0.45*exp(-a*a/0.12));
+    if(r4>0.62&&u>0.55) H*=0.84;                 // 위층이 좁아지는 계단식
+    if(r4>0.9&&u<0.07) H+=W*1.4;                 // 옥상 안테나
+    if(r4<0.12) H-=hw*u*0.5;                     // 비스듬한 지붕
+    if(H>best.x) best=vec4(H,cx-hw,2.0*hw,id);
   }
-  c+=vec3(0.6,0.8,1.0)*uNight*1.2*exp(-(pow(a+0.30,2.0)+pow(h-0.119,2.0))/0.000004);
-  c+=vec3(1.0,0.45,0.75)*uNight*0.9*exp(-(pow(a-0.2,2.0)+pow(h-0.052,2.0))/0.00001);
-  c+=vec3(1.0,0.2,0.2)*uNight*exp(-(pow(a-0.2,2.0)+pow(h-0.081,2.0))/0.0000015)*(0.6+0.4*sin(uTime*3.0));
-  c+=vec3(1.0,0.55,0.32)*0.10*uNight*exp(-h*45.0);
-  // 다리
-  const float DK=0.0032;
-  float sg=(a+0.62)/0.13, seg=fract(sg);
-  float arch=DK+0.011*sin(3.14159*seg);
-  float onArch=smoothstep(px*1.3,0.0,abs(h-arch))*step(DK,h);
-  float inDk=step(DK,h)*step(h,DK+0.0012);
-  float pier=step(abs(fract(sg+0.5)-0.5)*0.13,0.0012)*step(h,DK);
-  c=mix(c,mix(vec3(0.02,0.022,0.04),vec3(0.3,0.31,0.34),uDay),max(max(inDk,onArch*0.9),pier));
-  float lx=(fract(a/0.009)-0.5)*0.009, ly=h-DK-0.0016;
-  c+=vec3(1.0,0.8,0.5)*exp(-(lx*lx+ly*ly)/(px*px*0.7))*uNight*0.9;
-  c+=vec3(0.5,0.75,1.0)*onArch*uNight*0.5;
+  return best;
+}
+vec3 facade(vec4 b, float a, float h, float far, float winW, float winH, vec3 c0){
+  float lx=(a-b.y)/b.z, sp=0.3+0.4*hash21(vec2(b.w,9.1));
+  float sunL=uSunD.x<0.0?1.0:0.0;                                   // 해가 왼쪽(동)이면 왼쪽 벽이 밝음
+  float lit=lx<sp?mix(0.55,1.0,sunL):mix(1.0,0.55,sunL);
+  vec3 day=mix(vec3(0.20,0.22,0.27),vec3(0.36,0.37,0.40),hash21(vec2(b.w,2.2)))*(0.55+0.45*lit);
+  day+=uSunC*0.06*lit;
+  vec3 col=mix(vec3(0.010,0.012,0.026)*(0.8+0.4*lit),day,uDay);
+  // 창문: 건물마다 격자가 따로(건물 경계를 넘지 않음), 층마다 켜진 방이 다름
+  float nx=max(2.0,floor(b.z/winW));
+  vec2 g=vec2(lx*nx,h/winH), gi=floor(g), gf=fract(g);
+  float isWin=step(0.22,gf.x)*step(gf.x,0.78)*step(0.25,gf.y)*step(gf.y,0.75)*step(1.0,gi.y)*step(h,b.x-winH*0.8);
+  float office=step(0.6,hash21(vec2(b.w,4.4)));
+  float on=step(office>0.5?0.35:0.6,hash21(gi+b.w*7.13));
+  vec3 wc=office>0.5?vec3(0.78,0.88,1.0):(hash21(gi+3.3)<0.75?vec3(1.0,0.76,0.45):vec3(1.0,0.9,0.75));
+  col+=wc*isWin*on*(0.5+0.25*hash21(gi+1.9))*smoothstep(0.15,0.6,uNight);
+  col+=vec3(0.5,0.55,0.6)*isWin*0.05*uDay;                         // 낮: 유리에 비친 하늘
+  return mix(col,c0,far);                                           // 대기 원근
+}
+vec3 bgCity(float a, float h, float px, vec3 c){
+  // 1) 도시 뒤 먼 산
+  float hm=0.016+0.02*fbm(vec2(a*4.0,9.0))+0.008*vnoise(vec2(a*16.0,2.0));
+  c=mix(c,mix(mix(vec3(0.02,0.025,0.05),vec3(0.30,0.34,0.42),uDay),uHor,0.62),smoothstep(px,0.0,h-hm));
+  // 2) 먼 빌딩 숲 + 랜드마크 타워
+  vec4 b1=skyline(a,0.0085,0.006,0.05,1.0);
+  float tw=abs(a+0.28), twW=0.0068*(1.0-clamp(h/0.115,0.0,1.0))+0.0005;
+  if(h<0.115&&tw<twW&&h>b1.x){ b1=vec4(0.115,-0.28-0.0068,0.0136,77.0); }
+  if(h<b1.x+px) c=mix(c,facade(b1,a,h,0.42,0.0017,0.0021,uHor),smoothstep(px,0.0,h-b1.x));
+  // 3) 가까운 빌딩 숲(더 크고 진함)
+  vec4 b2=skyline(a,0.016,0.004,0.032,2.0);
+  if(h<b2.x+px) c=mix(c,facade(b2,a,h,0.16,0.0021,0.0026,uHor),smoothstep(px,0.0,h-b2.x));
+  // 옥상 항공장애등(높은 건물만, 함께 깜빡임)
+  float bl=step(0.5,fract(uTime*0.5));
+  if(b1.x>0.042){ float dx=a-(b1.y+b1.z*0.5), dy=h-b1.x-0.0008; c+=vec3(1.0,0.12,0.1)*exp(-(dx*dx+dy*dy)/(px*px*0.8))*bl*(0.3+0.9*uNight); }
+  c+=vec3(0.6,0.8,1.0)*(0.3+0.9*uNight)*exp(-(pow(a+0.28,2.0)+pow(h-0.116,2.0))/(px*px*1.5))*(0.6+0.4*sin(uTime*2.0));
+  // 4) 다리: 상판과 낮은 주탑, 양방향으로 달리는 차 불빛
+  const float DK=0.0026;
+  float inDk=step(DK,h)*step(h,DK+0.0010);
+  float py=fract((a+0.62)/0.11);
+  float pyl=step(abs(py-0.5)*0.11,0.0007)*step(h,DK+0.006)+step(abs(py-0.5)*0.11,0.0011)*step(h,DK);
+  c=mix(c,mix(vec3(0.015,0.017,0.03),vec3(0.28,0.29,0.31),uDay),clamp(inDk+pyl,0.0,1.0));
+  float lx=(fract(a/0.008)-0.5)*0.008, ly=h-DK-0.0014;
+  c+=vec3(1.0,0.78,0.48)*exp(-(lx*lx+ly*ly)/(px*px*0.6))*uNight*0.8;
+  float car1=a-uTime*0.006, car2=a+uTime*0.0075;                    // 오른쪽으로 가는 전조등, 왼쪽으로 가는 미등
+  float i1=floor(car1/0.035), i2=floor(car2/0.03);
+  float d1=(fract(car1/0.035)-hash21(vec2(i1,5.0))*0.8-0.1)*0.035, d2=(fract(car2/0.03)-hash21(vec2(i2,6.0))*0.8-0.1)*0.03;
+  float cy=h-DK-0.0013;
+  c+=vec3(1.0,0.95,0.85)*exp(-(d1*d1)/(px*px*0.5)-cy*cy/(px*px*0.25))*step(0.3,hash21(vec2(i1,2.0)))*(0.25+0.9*uNight);
+  c+=vec3(1.0,0.15,0.1)*exp(-(d2*d2)/(px*px*0.5)-cy*cy/(px*px*0.25))*step(0.3,hash21(vec2(i2,3.0)))*(0.2+0.8*uNight);
+  // 5) 도시 불빛이 낮은 하늘을 물들임 + 이따금 지나가는 비행기
+  c+=vec3(1.0,0.55,0.32)*0.09*uNight*exp(-h*40.0);
+  float ft=fract(uTime/150.0), fx=-0.75+ft*1.5, fy=0.105-0.03*ft;
+  vec2 fd=vec2(a-fx,h-fy);
+  float st=step(0.92,fract(uTime*0.8));
+  c+=(vec3(1.0,0.2,0.15)*exp(-dot(fd+vec2(0.0015,0.0),fd+vec2(0.0015,0.0))/(px*px*0.6))
+     +vec3(1.0)*st*exp(-dot(fd,fd)/(px*px*0.9))*2.0)*(0.25+0.75*uNight);
   return c;
 }
 // 배경 3: 장엄한 바다 — 오른쪽 바위 곶 위 등대, 회전하는 불빛, 먼 배
@@ -457,7 +503,7 @@ vec3 bgLight(float a, float h, float px, vec3 c){
     c=lc;
   }
   vec2 L=vec2(LX,lb+LTH+0.0034), q=vec2(a,h)-L;
-  float ph=uTime*0.75, cb=cos(ph), sb=sin(ph), bs=(0.2+0.8*uNight)*(1.0-0.7*uDay);
+  float ph=uBeam, cb=cos(ph), sb=sin(ph), bs=(0.2+0.8*uNight)*(1.0-0.7*uDay);   // 오른쪽 0.35, 왼쪽 -π+0.35, 옮길 땐 이쪽(번쩍)을 지나 돎
   float al=q.x*sign(cb);
   if(al>0.0){
     float w=0.002+al*0.09, pp=q.y-al*0.015, ln=0.03+0.9*abs(cb);
@@ -496,20 +542,25 @@ vec3 sky(vec3 d){
   float sd=max(dot(d,uSunD),0.0);
   c+=uSunC*(0.08*pow(sd,8.0)+0.3*pow(sd,90.0));
   float md=max(dot(d,uMoonD),0.0), lf=0.5-0.5*cos(6.2831853*uMoonPh);
-  c+=vec3(0.7,0.76,0.95)*uMoonL*lf*(0.06*pow(md,40.0)+0.14*pow(md,400.0));
+  c+=vec3(0.7,0.76,0.95)*uMoonL*lf*0.06*pow(md,2500.0);          // 달 바로 둘레만 아주 옅게
   if(d.y>0.0){
-    vec2 cp=d.xz/(d.y+0.06)*0.55-vec2(uTime*0.0015,0.0);          // 거의 멈춘 듯 아주 느리게 흐르는 구름
+    // 구름층(하늘 높이의 평면)이 바람에 실려 천천히 흘러오고(오른쪽으로, 이쪽으로), 모양은 서서히 생기고 흩어짐
+    vec2 cp=d.xz/(d.y+0.06)*0.55+vec2(-0.010,0.006)*uTime;
+    vec2 wp=vec2(vnoise(cp*0.7+uTime*0.006),vnoise(cp*0.7+7.3-uTime*0.005));
+    cp+=wp*0.7;
     float cl=fbm(cp)*0.75+fbm(cp*2.7+5.0)*0.25;
+    float cs=fbm(cp+normalize(uSunD.xz+vec2(0.0,1e-4))*0.12);        // 해 쪽으로 옮긴 곳이 더 얇으면 그쪽 면이 밝음
     float s=smoothstep(0.3,0.75,cl), hz=1.0-smoothstep(0.0,0.35,e);
     float cov=clamp((cl-(0.62-0.4*uCover))/0.14,0.0,1.0);
     c+=celestial(d)*(1.0-cov*0.92);
     c*=mix(1.0,0.72+0.6*s,uCover);
     c+=uCld*hz*s+uSunC*0.12*pow(sd,6.0)*s*uCover;
+    c*=1.0+clamp((cl-cs)*2.5,-0.3,0.35)*s*uCover*(0.4+0.6*uDay);
   }
   if(d.z>0.05){
     float a=d.x/d.z, h=d.y/d.z, px=1.3/uF;
     if(uBg==0) c=bgNeon(d,vec2(uCx+uF*a,uY0-uF*h),c);
-    else if(uBg==1) c=bgHan(a,h,px,c);
+    else if(uBg==1) c=bgCity(a,h,px,c);
     else if(uBg==2) c=bgLight(a,h,px,c);
     else c=bgDream(a,h,px,c);
   }
@@ -669,7 +720,7 @@ void main(){
     float hz=1.0-exp(-Z*0.0035);
     col=mix(col,uHazeC,hz*0.45);
   }
-  col+=uHazeC*1.1*exp(-dy*dy/2.4);
+  col+=uHazeC*1.1*exp(-dy*dy/2.4)*mix(1.0,0.3,uDay);   // 수평선의 옅은 빛띠(낮엔 약하게)
   col+=(hash21(gl_FragCoord.xy+uTime)-0.5)/255.0;
   o=vec4(clamp(col,0.0,1.0),1.0);
 }`;
@@ -684,7 +735,7 @@ void main(){
   float yp=uCanvas.y-fc.y, dy=yp-uY0d;
   float iz=dy>0.0?dy/uFHd:0.0;                                    // 1/거리
   const float IZF=0.35;
-  float coc=(iz<IZF?(IZF-iz)*12.0:(iz-IZF)*3.0)*uDpr;
+  float coc=(iz<IZF?(IZF-iz)*4.0:(iz-IZF)*3.0)*uDpr;   // 먼 배경(하늘·달·도시)은 거의 또렷하게
   coc=min(coc,8.0*uDpr);
   vec3 acc=texture(uScene,uv).rgb, bl=vec3(0.0); float ws=1.0;
   for(int i=0;i<16;i++){
@@ -1578,7 +1629,7 @@ function commonUniforms(p, t) {
     const nrm = v => { const l = Math.hypot(v[0], v[1], v[2]); return [v[0] / l, v[1] / l, v[2] / l]; };
     v3('uZen', SKY.zen); v3('uMid', SKY.mid); v3('uHor', SKY.hor); v3('uCld', SKY.cld); v3('uHazeC', SKY.haze); v3('uGlowC', SKY.glow);
     v3('uDeepC', SKY.deep); v3('uSunC', SKY.sunC); v3('uSunD', nrm(SKY.sunD)); v3('uMoonD', nrm(SKY.moonD));
-    v1('uMoonPh', SKY.moonPh); v1('uMoonL', SKY.moonL); v1('uNight', SKY.night); v1('uDay', SKY.day); v1('uCover', BG.cover);
+    v1('uMoonPh', SKY.moonPh); v1('uMoonL', SKY.moonL); v1('uNight', SKY.night); v1('uDay', SKY.day); v1('uCover', BG.cover); v1('uBeam', beam.ph);
     if (p.u.uBg) gl.uniform1i(p.u.uBg, BG.bg);
   }
 }
@@ -1763,7 +1814,7 @@ let last = performance.now(), manual = false, fpsAcc = 0, fpsN = 0, fps = 60, sl
 const T0 = performance.now();
 function step(dt) {
   simT += dt;
-  updateSky(dt);
+  updateSky(dt); updateBeam(dt);
   if (!manual) analyze(dt);
   const target = analyser ? clamp(soundLvl / 8, 0, 1) : 0;   // 조용해지면 비가 그침
   rainAmt += (target - rainAmt) * (1 - Math.exp(-dt / (target > rainAmt ? 0.25 : 0.9)));
@@ -1814,7 +1865,7 @@ function tileRow(el, list, onPick) {
 }
 function markOn(el, id) { el.querySelectorAll('[data-id]').forEach(b => b.classList.toggle('on', b.dataset.id === id)); }
 function setScene(id) { const sc = SCENES.find(x => x.id === id); if (!sc) return; SCENE = sc; markOn($('scenes'), sc.id); }
-function setBg(id) { const b = BGS.find(x => x.id === id); if (!b) return; BG = b; markOn($('bgs'), b.id); }
+function setBg(id) { if (id === 'han') id = 'city'; const b = BGS.find(x => x.id === id); if (!b) return; BG = b; markOn($('bgs'), b.id); }
 function setTod(id) { const t = TODS.find(x => x.id === id); if (!t) return; TOD = t; markOn($('tods'), t.id); dialT = 0; }
 tileRow($('bgs'), BGS, setBg);
 tileRow($('scenes'), SCENES, setScene);
@@ -1982,7 +2033,7 @@ autoStart();
 // 테스트용 훅
 window.RK = {
   splash: (fx, Z, e, reg) => { const X = (fx * W - cx) * Z / f; splash(X, Z, e, 200, 0, reg); },
-  spawnNote, drizzle: (m, lv) => spawnDrizzle(m, lv), hitLog, get capT0() { return capT0; }, get started() { return started; }, get hits() { return hitCount; }, get gl() { return glReady; }, get fps() { return fps; },
+  beam, spawnNote, drizzle: (m, lv) => spawnDrizzle(m, lv), hitLog, get capT0() { return capT0; }, get started() { return started; }, get hits() { return hitCount; }, get gl() { return glReady; }, get fps() { return fps; },
   manual(on) { manual = on; }, step(n, dt) { for (let i = 0; i < n; i++) step(dt); draw(); },
   clear() { drops.length = parts.length = crowns.length = jets.length = craters.length = bubbles.length = floaters.length = flashes.length = timers.length = EV.length = 0; rainS.length = 0; },
   dump: () => ({ jets: jets.map(j => [+j.t.toFixed(2), +jetLen(j).toFixed(3), j.det, +j.vy.toFixed(2)]), crowns: crowns.map(c => [+c.t.toFixed(2), c.life.toFixed(2)]), craters: craters.length, bub: bubbles.length, drops: drops.length, parts: parts.filter(p => !(p.Y > -1 && p.Y < 5)).length }),
