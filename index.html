@@ -22,7 +22,7 @@
   body.idle{cursor:none}
   #card{position:fixed;right:max(16px,env(safe-area-inset-right));bottom:calc(max(16px,env(safe-area-inset-bottom)) + 52px);width:300px;max-width:calc(100vw - 32px);
     border-radius:18px;padding:16px 16px 12px;z-index:7;font-size:13px;display:flex;flex-direction:column;gap:14px;
-    transition:opacity .2s,transform .2s;transform-origin:100% 100%}
+    transition:opacity .2s,transform .2s;transform-origin:100% 100%;max-height:calc(100vh - 90px);overflow-y:auto;overscroll-behavior:contain}
   #card[hidden]{display:flex;opacity:0;transform:translateY(8px) scale(.98);pointer-events:none;visibility:hidden}
   #card h3{margin:0;font-size:12px;font-weight:600;letter-spacing:.04em;color:#e8f0ff;display:flex;align-items:center;gap:6px}
   #card h3 .val{margin-left:auto;font-weight:400;opacity:.6;font-variant-numeric:tabular-nums}
@@ -41,9 +41,22 @@
   #card input[type=range]{width:100%;accent-color:#7fb4ff;margin:0}
   .fine{display:flex;align-items:center;gap:8px;font-size:11px;opacity:.75;white-space:nowrap}
   .hint{font-size:10.5px;opacity:.5;margin-top:-3px}
-  #tapPad{height:64px;border-radius:12px;border:1px dashed rgba(170,200,255,.4);display:grid;place-items:center;text-align:center;font-size:12px;line-height:1.5;cursor:pointer;user-select:none;-webkit-user-select:none;background:rgba(120,160,255,.06)}
-  #tapPad.beat{background:rgba(127,180,255,.28)}
-  #tapPad[hidden]{display:none}
+  .seg button{display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 2px;line-height:1.15}
+  .seg button b{font-size:16px;font-weight:400}
+  #devs button{font-size:10.5px;white-space:nowrap;letter-spacing:-.02em}
+  details .hint{margin-top:0;line-height:1.45}
+  details summary{font-size:11px;opacity:.55;cursor:pointer;list-style:none;display:flex;gap:6px;align-items:center;user-select:none}
+  details summary::-webkit-details-marker{display:none}
+  details summary::before{content:'▸';transition:transform .2s}
+  details[open] summary::before{transform:rotate(90deg)}
+  details summary .val{margin-left:auto;font-variant-numeric:tabular-nums}
+  details[open]{display:flex;flex-direction:column;gap:8px}
+  .scenes{display:grid;grid-template-columns:repeat(auto-fill,minmax(80px,1fr));gap:6px}
+  .scene{padding:0;border:1px solid rgba(160,190,255,.2);border-radius:11px;overflow:hidden;cursor:pointer;background:none;color:#dce8ff;font:inherit;font-size:11.5px;text-align:center}
+  .scene i{display:block;height:46px;background-size:cover}
+  .scene span{display:block;padding:5px 2px 6px;background:rgba(10,14,34,.5)}
+  .scene:hover{border-color:rgba(160,200,255,.45)}
+  .scene.on{border-color:#9cc2ff;box-shadow:0 0 0 1px #9cc2ff}
   .row{display:flex;align-items:center;justify-content:space-between}
   .sw{position:relative;width:38px;height:22px;flex:none}
   .sw input{position:absolute;inset:0;opacity:0;margin:0;cursor:pointer}
@@ -93,25 +106,34 @@
 
 <div id="card" class="glass" hidden role="dialog" aria-label="설정">
   <div class="sec">
-    <h3>감도 <span class="tip" tabindex="0" data-tip="막대는 새로 울린 음의 세기예요. 점선을 넘은 음이 빗방울이 돼요. 점선을 위아래로 끌어 맞추세요. 내리면 여린 음까지 잡지만 잡음도 늘어요.">i</span><span class="val" id="sensv"></span></h3>
-    <canvas id="meter" title="위아래로 끌어 문턱 조절"></canvas>
-    <div class="hint">분홍 막대(점선을 넘은 음) = 빗방울 · 점선을 위아래로 끌어 조절</div>
-    <div class="seg" id="presets">
-      <button data-s="0.82">조용한 곡</button><button data-s="0.5">보통</button><button data-s="0.22">시끄러운 곡</button>
-    </div>
+    <h3>장면</h3>
+    <div class="scenes" id="scenes"></div>
   </div>
   <div class="sec">
-    <h3>싱크 <span class="tip" tabindex="0" data-tip="방울이 물에 닿는 순간을 귀에 들리는 소리에 맞춰요. 음악을 틀고 '박자에 맞춰 탭하기'를 누른 뒤 박자대로 8번 두드리면 자동으로 맞춰져요. 블루투스 이어폰은 지연이 커요.">i</span><span class="val" id="fallv"></span></h3>
-    <button class="btn" id="tapBtn">♩ 박자에 맞춰 탭하기</button>
-    <div id="tapPad" hidden tabindex="0"></div>
-    <label class="fine">미세 조정 <input id="fall" type="range" min="0.1" max="0.8" step="0.01" value="0.3"></label>
+    <h3>곡 분위기 <span class="tip" tabindex="0" data-tip="잔잔한 곡일수록 여린 음까지 빗방울로 만들어요. 시끄러운 곡은 또렷한 음만 골라서 비가 너무 많아지지 않게 해요.">i</span></h3>
+    <div class="seg" id="presets">
+      <button data-s="0.82"><b>🌙</b>조용한 곡</button><button data-s="0.5"><b>🎵</b>보통</button><button data-s="0.22"><b>🔥</b>시끄러운 곡</button>
+    </div>
+    <details><summary>직접 조절 <span class="val" id="sensv"></span></summary>
+      <canvas id="meter" title="위아래로 끌어 문턱 조절"></canvas>
+      <div class="hint">점선을 넘은 분홍 막대 = 빗방울 · 점선을 끌어 조절</div>
+    </details>
+  </div>
+  <div class="sec">
+    <h3>듣는 기기 <span class="tip" tabindex="0" data-tip="지금 소리를 듣는 기기를 고르면, 방울이 물에 닿는 순간이 귀에 들리는 소리와 맞춰져요. 블루투스는 소리가 조금 늦게 들려서 그만큼 늦춰요.">i</span></h3>
+    <div class="seg" id="devs">
+      <button data-f="0.12"><b>🔊</b>스피커</button><button data-f="0.12"><b>🎧</b>유선 이어폰</button><button data-f="0.28"><b>🎧</b>블루투스</button><button data-f="0.2"><b>📺</b>TV·모니터</button>
+    </div>
+    <details><summary>직접 조절 <span class="val" id="fallv"></span></summary>
+      <label class="fine">빨리 <input id="fall" type="range" min="0.1" max="0.8" step="0.01" value="0.12"> 늦게</label>
+      <div class="hint">방울이 소리보다 먼저 닿으면 →, 늦게 닿으면 ←</div>
+    </details>
   </div>
   <div class="sec">
     <div class="row"><span>건반 표시</span><label class="sw"><input id="keys" type="checkbox" checked><span></span></label></div>
     <div class="row"><span>저사양 <span class="tip" tabindex="0" data-tip="입자 수와 해상도를 낮춰 느린 기기에서도 부드럽게 움직여요. 느려지면 자동으로 켜져요.">i</span></span><label class="sw"><input id="low" type="checkbox"><span></span></label></div>
     <button class="btn" id="saverBtn" title="Windows 화면보호기로 등록하고 설정 창을 열어요" hidden>🌧 화면보호기로 설정</button>
   </div>
-  <div class="row"><span>버전 <b>ver2</b> · 실사</span><a class="btn" style="flex:none;padding:6px 12px;text-decoration:none" href="v1/">ver1로 →</a></div>
   <div class="keys">H 화면만 보기 · F 전체화면 · S 설정</div>
 </div>
 <div id="toast" class="glass off"></div>
@@ -137,6 +159,27 @@ const clamp = (x, a, b) => x < a ? a : x > b ? b : x;
 const lerp = (a, b, t) => a + (b - a) * t;
 const sstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
 const $ = id => document.getElementById(id);
+
+/* ----------------------------------------------------------------------
+   장면(환경). 장면 하나 = 이 값들의 묶음이고, 설정 카드의 장면 타일은 이 목록에서 자동으로 만들어짐.
+   새 장면(눈, 강한 바람, 다른 배경 …)은 항목을 더하고, 아직 없는 값(예: precip:'snow', sky:'dawn')을 읽는 쪽만 구현하면 됨.
+     precip     내리는 것: 'rain' (예정: 'snow')
+     sky        하늘·배경: 'neon-night' (예정: 다른 배경)
+     wind       옆바람 세기 배율
+     water      수면 파문 표현: 0 잔잔함(매끈한 고리 1~2개) · 1 물결 가득(촘촘한 파문 열차)
+     rippleTau  파문이 잦아드는 시간 [기본, 방울 크기 비례]
+     nearRate   가까운 잔비가 남기는 파문 수(초당 최대)
+     fieldRings 수면 전체 잔비 고리의 양
+     thumb      타일 미리보기(CSS 배경)
+   ---------------------------------------------------------------------- */
+const SCENES = [
+  { id: 'calm', name: '잔잔한 비', precip: 'rain', sky: 'neon-night', wind: 1, water: 0, rippleTau: [0.55, 0.55], nearRate: 9, fieldRings: 0,
+    thumb: 'radial-gradient(ellipse 34% 16% at 50% 68%,transparent 70%,rgba(220,200,255,.75) 76%,transparent 84%),linear-gradient(#3b2a6e,#5a3f9a 48%,#1c1838 52%,#0d0c22)' },
+  { id: 'lively', name: '물결 가득', precip: 'rain', sky: 'neon-night', wind: 1, water: 1, rippleTau: [1.2, 1.6], nearRate: 14, fieldRings: 0,
+    thumb: 'repeating-radial-gradient(ellipse 100% 45% at 40% 72%,rgba(220,200,255,.35) 0 1px,transparent 2px 6px),linear-gradient(#3b2a6e,#5a3f9a 48%,#1c1838 52%,#0d0c22)' }
+];
+let SCENE = SCENES[0];
+const rippleTau = s => SCENE.rippleTau[0] + SCENE.rippleTau[1] * s;
 // 데스크톱 앱(desktop/)에서 열렸을 때 preload가 넣어 주는 연결부. 브라우저에서는 null
 // 앱에서는 '기기 소리'가 공유 창 없이 시스템 소리(루프백)로 바로 연결됨
 const HOST = window.rainKeysHost || null;
@@ -230,9 +273,12 @@ vec3 env(vec3 d){
   float k=clamp(-d.y*5.0,0.0,1.0);
   return mix(sky(m)*0.6, DEEP*1.4, k);
 }
-// 해석적 파문(ver2, 실제 빗물 영상 기준): 방울 하나에 매끈한 고리 한 개(+약한 뒤따르는 고리)만.
-// 촘촘한 모세관 파문 열차 없이 넓고 부드러운 마루가 퍼지다 금방 잦아듦 → 눈이 덜 피로함
-// 단면은 리커 파형(가운데 마루 + 양옆 얕은 골). 반환값 (높이, ∂h/∂x, ∂h/∂z)
+// 해석적 파문. 장면의 물 표현(uWater)에 따라 두 가지:
+//  0 잔잔함: 실제 빗물 영상 기준, 방울 하나에 매끈한 고리 한 개(+약한 뒤따르는 고리)만 퍼지다 금방 잦아듦
+//    단면은 리커 파형(가운데 마루 + 양옆 얕은 골)
+//  1 물결 가득: 파장이 다른 3개 성분이 서로 다른 속도로 퍼지는 촘촘한 파문 열차가 오래 감
+// 반환값 (높이, ∂h/∂x, ∂h/∂z)
+uniform int uWater;
 vec2 ricker(float q){ float e=exp(-q*q); return vec2((1.0-2.0*q*q)*e, (4.0*q*q*q-6.0*q)*e); }
 vec3 ripple(vec2 xz, vec2 fpv){   // fpv: 픽셀 하나가 덮는 월드 길이(가로, 깊이)
   vec3 acc=vec3(0.0);
@@ -242,8 +288,27 @@ vec3 ripple(vec2 xz, vec2 fpv){   // fpv: 픽셀 하나가 덮는 월드 길이(
     if(t<=0.0) continue;
     float s=uEvB[i].x;
     vec2 d=xz-a.xy; float r=length(d);
-    float lam=0.06*s+0.025, c=0.26*sqrt(s)+0.06;
     float fpr=length(fpv*d/max(r,1e-4));
+    if(uWater==1){
+      float lam=0.05*s, c=0.30*sqrt(s);
+      if(r>c*2.4*t+lam*4.0) continue;
+      float A=a.w*exp(-t/(1.2+1.6*s))/sqrt(1.0+r/(lam*1.5));
+      float h=0.0, dh=0.0;
+      for(int j=0;j<3;j++){
+        float m = j==0?1.0:(j==1?0.6:0.36);
+        float am= j==0?1.0:(j==1?0.55:0.3);
+        float L=lam*m, k=6.2831853/L, cp=c/sqrt(m);
+        float rc=cp*1.35*t, w=L*1.1+0.28*rc;
+        float q=(r-rc)/w, en=exp(-q*q)*smoothstep(1.2*fpr,3.5*fpr,L);
+        float ph=k*(r-cp*t)+float(j)*1.3;
+        h+=am*en*cos(ph); dh+=-am*en*k*sin(ph);
+      }
+      float cen=exp(-r*r/(lam*lam*0.3))*exp(-t*6.0);           // 착수점 중심의 출렁임
+      h+=cen*cos(t*28.0)*0.8;
+      acc.x+=A*h; acc.yz+=A*dh*d/max(r,1e-4);
+      continue;
+    }
+    float lam=0.06*s+0.025, c=0.26*sqrt(s)+0.06;
     float rc=c*t, w=lam*0.45+0.07*rc;                 // 퍼질수록 고리가 넓고 낮아짐
     if(r>rc+w*4.0) continue;
     float A=a.w*2.3*exp(-t/(0.55+0.55*s))/sqrt(1.0+r/lam)*smoothstep(1.0*fpr,3.0*fpr,w);
@@ -275,11 +340,22 @@ vec3 rainField(vec2 xz, vec2 fpv){
       if(t>life) continue;
       vec2 ctr=(c+vec2(hash21(c+5.1),hash21(c+9.7))-off)*cs;
       vec2 d=xz-ctr; float r=length(d);
+      float fl=1.0-t/life;
+      float fpr=length(fpv*d/max(r,1e-4));
+      if(uWater==1){
+        float rc=1.15*t+0.01, lam=0.05+0.025*h1, w=lam*1.3+0.12*rc;
+        float q=(r-rc)/w;
+        if(abs(q)>3.0) continue;
+        float k=6.2831853/lam;
+        float A=(0.0009+0.0018*h1*h1)*fl*fl/sqrt(1.0+r*8.0)*smoothstep(0.7*fpr,2.6*fpr,lam);
+        float en=exp(-q*q), ph=k*(r-rc);
+        acc.x+=A*en*cos(ph);
+        acc.yz+=-A*en*k*sin(ph)*d/max(r,1e-4);
+        continue;
+      }
       float rc=0.55*t+0.01, w=0.025+0.02*h1+0.06*rc;
       float q=(r-rc)/w;
       if(abs(q)>3.0) continue;
-      float fl=1.0-t/life;
-      float fpr=length(fpv*d/max(r,1e-4));
       float A=(0.0024+0.004*h1*h1)*fl*fl/sqrt(1.0+r*8.0)*smoothstep(0.8*fpr,2.4*fpr,w);
       vec2 g=ricker(q);
       acc.x+=A*g.x;
@@ -620,7 +696,7 @@ window.addEventListener('resize', resize);
 const drops = [], parts = [], crowns = [], jets = [], craters = [], bubbles = [], floaters = [], flashes = [], timers = [], EV = [];
 const keyGlow = new Float32Array(128);
 let started = false, showKeys = true;
-let fallT = 0.3, sens = 0.5, hitCount = 0;
+let fallT = 0.12, sens = 0.5, hitCount = 0;
 const hitLog = [];
 let simT = 0, fxT = 0;
 // 스플래시·파문의 시간 배속. 3이면 거의 실제 속도(이전 버전은 약 3배 슬로모션)
@@ -636,7 +712,7 @@ function ripple(X, Z, A, s, delay) {
   if (EV.length >= EVMAX) {
     let wi = -1, wv = 1e9;
     for (let i = 0; i < EV.length; i++) {
-      const e = EV[i], age = Math.max(0, fxT - e.t0), v = e.A * Math.exp(-age / (0.55 + 0.55 * e.s));
+      const e = EV[i], age = Math.max(0, fxT - e.t0), v = e.A * Math.exp(-age / rippleTau(e.s));
       if (v < wv) { wv = v; wi = i; }
     }
     if (A < wv) return;
@@ -998,7 +1074,7 @@ function crownH(c, th, Hc) {
 function updateFx(dt) {
   windT += dt; windX = 0.09 * Math.sin(windT * 0.11) + 0.05 * Math.sin(windT * 0.37 + 1.3);
   for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= dt; if (timers[i].t <= 0) { const fn = timers[i].fn; timers.splice(i, 1); fn(); } }
-  for (let i = EV.length - 1; i >= 0; i--) { const e = EV[i]; if (fxT - e.t0 > 3.2 * (0.55 + 0.55 * e.s)) EV.splice(i, 1); }
+  for (let i = EV.length - 1; i >= 0; i--) { const e = EV[i]; if (fxT - e.t0 > 3.2 * rippleTau(e.s)) EV.splice(i, 1); }
   const cap = PCAP();
   for (let i = parts.length - 1; i >= 0; i--) {
     const p = parts[i];
@@ -1269,7 +1345,8 @@ function drawGL(t) {
   gl.bindFramebuffer(gl.FRAMEBUFFER, fbo); gl.viewport(0, 0, fboW, fboH);
   gl.disable(gl.BLEND);
   gl.useProgram(pSea); commonUniforms(pSea, t);
-  gl.uniform2f(pSea.u.uFbo, fboW, fboH); gl.uniform1f(pSea.u.uPx, fboW / W); gl.uniform1f(pSea.u.uCalm, 0.035);   // 물 스스로의 물결은 거의 없음 — 움직임은 빗방울이 만듦 gl.uniform1f(pSea.u.uRain, RAIN * Math.pow(rainAmt, 0.7)); gl.uniform1i(pSea.u.uRainL, LOW ? 1 : 3);
+  gl.uniform2f(pSea.u.uFbo, fboW, fboH); gl.uniform1f(pSea.u.uPx, fboW / W); gl.uniform1f(pSea.u.uCalm, 0.035);   // 물 스스로의 물결은 거의 없음 — 움직임은 빗방울이 만듦
+  gl.uniform1f(pSea.u.uRain, RAIN * SCENE.fieldRings * Math.pow(rainAmt, 0.7)); gl.uniform1i(pSea.u.uRainL, LOW ? 1 : 3); gl.uniform1i(pSea.u.uWater, SCENE.water);
   gl.bindVertexArray(vaoFull); gl.drawArrays(gl.TRIANGLES, 0, 3);
   // 2) 화면으로 복사
   gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, glc.width, glc.height);
@@ -1318,7 +1395,7 @@ function drawGL(t) {
 let windVX = 0.45, windVZ = 0;
 function updateWind(t) {
   const gust = 0.35 * Math.pow(Math.max(0, Math.sin(t * 0.13 + 0.7)), 6);
-  windVX = 0.45 + 0.2 * Math.sin(t * 0.041) + 0.1 * Math.sin(t * 0.11 + 1.1) + gust;
+  windVX = (0.45 + 0.2 * Math.sin(t * 0.041) + 0.1 * Math.sin(t * 0.11 + 1.1) + gust) * SCENE.wind;
   windVZ = 0.2 * Math.sin(t * 0.053 + 2.0);
 }
 const turbX = (X, Y, Z, t) => 0.4 * Math.sin(0.9 * X + 1.7 * Y + 0.8 * t) + 0.2 * Math.sin(1.9 * Z - 0.5 * t + X);
@@ -1339,7 +1416,7 @@ function spawnDrizzle(midi, lv) {
 }
 let impTok = 0;
 function updateStreaks(dt) {
-  impTok = Math.min(3, impTok + dt * (LOW ? 5 : 9));
+  impTok = Math.min(3, impTok + dt * SCENE.nearRate * (LOW ? 0.55 : 1));
   for (let i = rainS.length - 1; i >= 0; i--) {
     const s = rainS[i];
     const tx = windVX + turbX(s.X, s.Y, s.Z, simT), tz = windVZ + turbZ(s.X, s.Y, s.Z, simT);
@@ -1460,19 +1537,38 @@ const thrDb = () => lerp(10, 4, sens);
 const M_DB = 20;
 // 설정은 이 브라우저에만 저장(없어도 기본값으로 동작)
 const PREF = 'rainkeys.prefs';
-function savePrefs() { try { localStorage.setItem(PREF, JSON.stringify({ sens, fallT, showKeys })); } catch (e) {} }
+function savePrefs() { try { localStorage.setItem(PREF, JSON.stringify({ sens, fallT, showKeys, scene: SCENE.id })); } catch (e) {} }
 try {
   const p = JSON.parse(localStorage.getItem(PREF) || 'null');
-  if (p) { if (p.sens >= 0 && p.sens <= 1) sens = p.sens; if (p.fallT >= 0.1 && p.fallT <= 0.8) fallT = p.fallT; if (typeof p.showKeys === 'boolean') showKeys = p.showKeys; }
+  if (p) { if (p.sens >= 0 && p.sens <= 1) sens = p.sens; if (p.fallT >= 0.1 && p.fallT <= 0.8) fallT = p.fallT; if (typeof p.showKeys === 'boolean') showKeys = p.showKeys; if (p.scene) setScene(p.scene); }
 } catch (e) {}
+// 주소의 ?scene= 이 저장값보다 우선(예전 /v1/ 주소는 ?scene=lively 로 옴)
+setScene(new URLSearchParams(location.search).get('scene'));
 function setSens(v) {
   sens = clamp(v, 0, 1);
-  $('sensv').textContent = sens > 0.66 ? '여린 음까지' : sens < 0.36 ? '또렷한 음만' : '보통';
+  $('sensv').textContent = sens > 0.66 ? '여린 음까지' : sens < 0.36 ? '또렷한 음만' : '중간';
   document.querySelectorAll('#presets button').forEach(b => b.classList.toggle('on', Math.abs(+b.dataset.s - sens) < 0.03));
 }
-function setFall(v) { fallT = clamp(v, 0.1, 0.8); $('fall').value = fallT; $('fallv').textContent = Math.round(fallT * 1000) + 'ms'; }
-setSens(sens); setFall(fallT); $('keys').checked = showKeys;
+function setFall(v, dev) {
+  fallT = clamp(v, 0.1, 0.8); $('fall').value = fallT; $('fallv').textContent = Math.round(fallT * 1000) + 'ms';
+  // 같은 값의 기기가 둘(스피커·유선)이면 누른 쪽만 켬
+  document.querySelectorAll('#devs button').forEach(b => b.classList.toggle('on', dev ? b === dev : Math.abs(+b.dataset.f - fallT) < 0.005 && b === document.querySelector(`#devs button[data-f="${b.dataset.f}"]`)));
+}
+function setScene(id) {
+  const sc = SCENES.find(x => x.id === id); if (!sc) return;
+  SCENE = sc;
+  document.querySelectorAll('.scene').forEach(b => b.classList.toggle('on', b.dataset.id === sc.id));
+}
+// 장면 타일은 SCENES 목록에서 만듦(장면을 더하면 타일도 자동으로 생김)
+for (const sc of SCENES) {
+  const b = document.createElement('button'); b.className = 'scene'; b.dataset.id = sc.id;
+  b.innerHTML = `<i style="background-image:${sc.thumb}"></i><span>${sc.name}</span>`;
+  b.addEventListener('click', () => { setScene(sc.id); savePrefs(); });
+  $('scenes').appendChild(b);
+}
+setSens(sens); setFall(fallT); setScene(SCENE.id); $('keys').checked = showKeys;
 document.querySelectorAll('#presets button').forEach(b => b.addEventListener('click', () => { setSens(+b.dataset.s); savePrefs(); }));
+document.querySelectorAll('#devs button').forEach(b => b.addEventListener('click', () => { setFall(+b.dataset.f, b); savePrefs(); }));
 $('fall').addEventListener('input', e => setFall(+e.target.value));
 $('fall').addEventListener('change', savePrefs);
 $('keys').addEventListener('change', e => { showKeys = e.target.checked; savePrefs(); });
@@ -1485,7 +1581,7 @@ function toggleFs() {
 $('fs').addEventListener('click', toggleFs);
 function openCard(on) {
   if (on && document.body.classList.contains('hideui')) document.body.classList.remove('hideui');
-  card.hidden = !on; gear.setAttribute('aria-expanded', on); if (!on) endTap();
+  card.hidden = !on; gear.setAttribute('aria-expanded', on);
 }
 gear.addEventListener('click', () => openCard(card.hidden));
 window.addEventListener('pointerdown', e => { if (!card.hidden && !card.contains(e.target) && !$('dock').contains(e.target)) openCard(false); });
@@ -1518,43 +1614,9 @@ mcv.addEventListener('pointerdown', e => { mDrag = true; mcv.setPointerCapture(e
 mcv.addEventListener('pointermove', e => { if (mDrag) meterAt(e); });
 mcv.addEventListener('pointerup', () => { mDrag = false; savePrefs(); });
 
-// 박자에 맞춰 탭하기: 들리는 박자에 두드린 시각과 검출 시각의 차이 = 귀까지의 지연 → 싱크
-const TAPN = 8, taps = [];
-let tapping = false;
-function tapText() { $('tapPad').innerHTML = '음악 박자에 맞춰 여기를 두드리세요 (스페이스도 돼요)<br>' + '●'.repeat(taps.length) + '○'.repeat(TAPN - taps.length); }
-function startTap() {
-  if (!analyser) { toast('먼저 소리를 연결하고 음악을 틀어 주세요'); return; }
-  tapping = true; taps.length = 0; $('tapBtn').hidden = true; $('tapPad').hidden = false; tapText(); $('tapPad').focus();
-}
-function endTap() { tapping = false; $('tapBtn').hidden = false; $('tapPad').hidden = true; }
-function doTap() {
-  if (!tapping) return;
-  taps.push(clk()); tapText();
-  const p = $('tapPad'); p.classList.add('beat'); setTimeout(() => p.classList.remove('beat'), 90);
-  if (taps.length < TAPN) return;
-  endTap();
-  const det = hitLog.map(h => h.t).filter(t => t > taps[0] - 1.2 && t < taps[TAPN - 1] + 0.2);
-  // 8분음표가 촘촘하면 여러 지연이 다 맞아 보이므로, 사람이 두드리는 센 박(여러 음이 함께 울린 순간)에 무게를 둠
-  const wt = det.map(d => det.filter(x => Math.abs(x - d) < 0.03).length);
-  const score = o => { let n = 0, w = 0; for (const t of taps) { let m = 0; det.forEach((d, i) => { if (Math.abs(t - o - d) < 0.05 && wt[i] > m) m = wt[i]; }); if (m) { n++; w += m; } } return [n, w]; };
-  let bestN = 0, bestW = 0, o0 = 0;
-  for (let o = -0.08; o <= 0.8; o += 0.005) {
-    const [n, w] = score(o);
-    if (n > bestN || (n === bestN && w > bestW + 0.5)) { bestN = n; bestW = w; o0 = o; }
-  }
-  if (bestN < 5) { toast('박자를 찾지 못했어요 · 리듬이 또렷한 구간에서 다시 해 보세요'); return; }
-  const res = []; for (const t of taps) { const d = det.reduce((a, d) => Math.abs(t - o0 - d) < Math.abs(t - o0 - a) ? d : a, -1e9); if (Math.abs(t - o0 - d) < 0.05) res.push(t - d); }
-  res.sort((a, b) => a - b);
-  setFall(res[res.length >> 1]); savePrefs();
-  toast('싱크를 ' + Math.round(fallT * 1000) + 'ms로 맞췄어요');
-}
-$('tapBtn').addEventListener('click', startTap);
-$('tapPad').addEventListener('pointerdown', e => { e.preventDefault(); doTap(); });
-
-// 단축키: H 화면만 보기 · F 전체화면 · S 설정 · Esc 닫기 · 탭 중엔 스페이스/엔터
+// 단축키: H 화면만 보기 · F 전체화면 · S 설정 · Esc 닫기
 window.addEventListener('keydown', e => {
   if (e.ctrlKey || e.metaKey || e.altKey || SAVER) return;
-  if (tapping && (e.code === 'Space' || e.code === 'Enter')) { e.preventDefault(); if (!e.repeat) doTap(); return; }
   const k = e.key.toLowerCase();
   if (k === 'h') { const on = !document.body.classList.toggle('hideui'); if (!on) { openCard(false); toast('화면만 보기 · H를 누르면 다시 보여요'); } }
   else if (k === 'f') toggleFs();
