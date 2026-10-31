@@ -272,7 +272,7 @@ function skyTarget() {
 const storm = { on: true, next: rand(12, 40), strokes: [], t: 9, flash: 0, bolt: 0, a: 0, seed: 0, top: 0.15, type: 0, close: false };
 function strike(dKm, force) {
   const d = dKm || 0.4 + 11 * Math.pow(Math.random(), 1.6), close = d < 2.2;
-  storm.a = close ? rand(-0.45, 0.45) : rand(-0.6, 0.6);   // 가까운 번개는 잘 보이는 곳에 storm.seed = Math.random() * 100; storm.top = rand(0.1, 0.19); storm.close = close; storm.t = 0; storm.strokes = [];
+  storm.a = close ? rand(-0.45, 0.45) : rand(-0.6, 0.6); storm.seed = Math.random() * 100; storm.top = rand(0.1, 0.19); storm.close = close; storm.t = 0; storm.strokes = [];   // 가까운 번개는 잘 보이는 곳에
   storm.type = close ? 0 : (Math.random() < 0.5 ? 1 : -1);                 // -1: 줄기 없이 구름만 번쩍
   const n = 2 + Math.floor(Math.random() * (close ? 4 : 2)), base = (close ? 1.5 : 0.6) * Math.min(1, 2.5 / (0.6 + d));
   for (let i = 0, tt = 0; i < n; i++) { storm.strokes.push({ t: tt, amp: base * (i ? rand(0.35, 0.95) : 1), dec: rand(0.04, 0.1) }); tt += rand(0.05, 0.22); }
@@ -2186,7 +2186,7 @@ $('storm').addEventListener('change', e => { storm.on = e.target.checked; savePr
 // 저장된 설정이 '켬'이면 첫 클릭·키 입력 때 시작(브라우저는 사용자 조작 전 소리를 막음)
 function ambFirstGesture(ev) {
   ['pointerdown', 'keydown'].forEach(ev => window.removeEventListener(ev, ambFirstGesture));
-  if (ev && ev.type === 'keydown' && ev.key.toLowerCase() === 'm') { ambOn = false; return; }   // M 키는 아래 단축키가 켜 줌
+  if (ev && ev.type === 'keydown' && ev.code === 'KeyM') { ambOn = false; return; }   // M 키는 아래 단축키가 켜 줌
   if (ambOn) setAmb(true);
 }
 function savePrefs() { try { localStorage.setItem(PREF, JSON.stringify({ sens, fallT, showKeys, scene: SCENE.id, bg: BG.id, tod: TOD.id, amb: ambOn, storm: storm.on })); } catch (e) {} }
@@ -2308,7 +2308,8 @@ function toast(t, ms) { const el = $('toast'); el.textContent = t; el.classList.
 // 단축키: H 화면만 보기 · F 전체화면 · S 설정 · Esc 닫기
 window.addEventListener('keydown', e => {
   if (e.ctrlKey || e.metaKey || e.altKey || SAVER) return;
-  const k = e.key.toLowerCase();
+  // 한글 입력 상태에서도 되도록 글자(e.key: 'ㅁ') 대신 키 위치(e.code: 'KeyA')로 판단
+  const k = e.code === 'Escape' ? 'escape' : e.code.startsWith('Key') ? e.code.slice(3).toLowerCase() : '';
   if (k === 'h') { const on = !document.body.classList.toggle('hideui'); if (!on) { openCard(false); toast('화면만 보기 · H를 누르면 다시 보여요'); } }
   else if (k === 'f') toggleFs();
   else if (k === 's') openCard(card.hidden);
@@ -2381,7 +2382,7 @@ autoStart();
 // 테스트용 훅
 window.RK = {
   splash: (fx, Z, e, reg) => { const X = (fx * W - cx) * Z / f; splash(X, Z, e, 200, 0, reg); },
-  beam, strike, storm, sea, get amb() { return amb; }, spawnNote, drizzle: (m, lv) => spawnDrizzle(m, lv), hitLog, get capT0() { return capT0; }, get started() { return started; }, get hits() { return hitCount; }, get gl() { return glReady; }, get fps() { return fps; },
+  beam, strike, storm, sea, thunderBuf, waveBuf, setBg, setTod, get amb() { return amb; }, spawnNote, drizzle: (m, lv) => spawnDrizzle(m, lv), hitLog, get capT0() { return capT0; }, get started() { return started; }, get hits() { return hitCount; }, get gl() { return glReady; }, get fps() { return fps; },
   manual(on) { manual = on; }, step(n, dt) { for (let i = 0; i < n; i++) step(dt); draw(); },
   clear() { drops.length = parts.length = crowns.length = jets.length = craters.length = bubbles.length = floaters.length = flashes.length = timers.length = EV.length = 0; rainS.length = 0; },
   dump: () => ({ jets: jets.map(j => [+j.t.toFixed(2), +jetLen(j).toFixed(3), j.det, +j.vy.toFixed(2)]), crowns: crowns.map(c => [+c.t.toFixed(2), c.life.toFixed(2)]), craters: craters.length, bub: bubbles.length, drops: drops.length, parts: parts.filter(p => !(p.Y > -1 && p.Y < 5)).length }),
