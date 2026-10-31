@@ -306,7 +306,7 @@ function thunderBuf(ctx, d, close) {
     let r = 0; for (const [te, a, w] of ev) if (t > te) r += a * Math.exp(-(t - te) / w) * Math.min(1, (t - te) / 0.012);
     env[j] = e * (0.35 + r) * Math.exp(-Math.max(0, t - dur + 1.2) / 0.4);
     fcA[j] = close ? 200 + (t < tc ? 700 : 900 * Math.exp(-(t - tc) / 0.35) + 260 * Math.exp(-(t - tc) / 2.5)) : Math.max(90, 230 - d * 8) + 120 * Math.exp(-t / 2);
-    crk[j] = close ? (t < tc ? Math.pow(t / tc, 1.5) : Math.exp(-(t - tc) / 0.25)) : 0;   // 찢어지는 소리(높은 '지직')
+    crk[j] = close ? (t < tc ? Math.pow(t / tc, 1.5) : Math.exp(-(t - tc) / 0.06)) : 0;   // 찢어지는 소리(높은 '지직')
   }
   const pan = clamp(storm.a * 0.8, -0.6, 0.6);
   for (let ch = 0; ch < 2; ch++) {
@@ -318,8 +318,8 @@ function thunderBuf(ctx, d, close) {
       const w = Math.random() * 2 - 1;
       l1 += a * (w - l1); l2 += a * (l1 - l2);
       hl += 0.2 * (w - hl); hh += 0.45 * ((w - hl) - hh);            // 지직: 약 1.5~4kHz 대역만
-      if (Math.random() < 0.004) gr = Math.random();                 // 지직: 드문드문 튀는 알갱이
-      gr *= 0.995;
+      if (Math.random() < 0.08) gr = 0.4 + 0.6 * Math.random();       // 지직: 빽빽하게 찢어지는 소리(드문드문이면 빗방울처럼 들림)
+      gr *= 0.97;
       const e = env[j] + (env[j + 1] - env[j]) * f, c = crk[j];
       o[i] = (l2 * e * Math.sqrt(4000 / fc) + hh * c * gr * 0.35) * cg;
     }
@@ -1614,6 +1614,7 @@ function impactAt(X, Z, e) {
   else if (Math.random() < 0.08) later(0.1, () => bubbles.push({ X, Z, r: rand(0.008, 0.016), t: 0, life: rand(0.5, 1.5), hue: 210, vx: rand(-0.02, 0.02), vz: rand(-0.02, 0.02) }));
 }
 function impact(d) {
+  dropSound(d.X, d.Z, d.kind === 'amb' ? d.sz : 0.6 + d.sz);
   if (d.kind === 'amb') { impactAt(d.X, d.Z, d.sz); return; }
   splash(d.X, d.Z, d.e, d.hue, d.wx * 0.5);
 }
@@ -1988,7 +1989,7 @@ function spawnDrizzle(midi, lv) {
   const vy = -rand(28, 38), tf = top / -vy;
   rainS.push({ X: (fx * W - cx) * Z / f - windVX * tf, Y: top, Z: Math.max(0.5, Z - windVZ * tf), vx: windVX, vy, vz: windVZ, r: 0.5 + 0.9 * lv * Math.random() });
 }
-let impTok = 0;
+let impTok = 0, ambDriz = 0;
 function updateStreaks(dt) {
   impTok = Math.min(3, impTok + dt * SCENE.nearRate * (LOW ? 0.55 : 1));
   for (let i = rainS.length - 1; i >= 0; i--) {
@@ -1999,7 +2000,7 @@ function updateStreaks(dt) {
     s.X += s.vx * dt; s.Y += s.vy * dt; s.Z += s.vz * dt;
     let gone = s.Z < 0.4 || s.Z > 19;
     if (s.Y <= 0) {
-      gone = true;
+      gone = true; dropSound(s.X, s.Z, s.r * 0.35);
       if (s.Z > 0.8 && s.Z < 4 && impTok >= 1) { impTok -= 1; impactAt(s.X, s.Z, 0.1 + 0.12 * s.r); }   // 가까운 방울은 떨어진 자리에 파문(초당 최대 약 30개)
     }
     if (gone) { rainS[i] = rainS[rainS.length - 1]; rainS.pop(); }
@@ -2079,7 +2080,12 @@ function step(dt) {
   simT += dt;
   updateSky(dt); updateBeam(dt); updateStorm(dt); updateSea(dt);
   if (!manual) analyze(dt);
-  const target = analyser ? clamp(soundLvl / 8, 0, 1) : 0;   // 조용해지면 비가 그침
+  let target = analyser ? clamp(soundLvl / 8, 0, 1) : 0;   // 조용해지면 비가 그침
+  if (ambOn) {                                            // 환경음을 켜 두면 조용해도 잔잔한 비는 계속
+    target = Math.max(target, 0.18);
+    ambDriz += dt * (LOW ? 90 : 200);
+    while (ambDriz >= 1) { ambDriz -= 1; spawnDrizzle(MIN_MIDI + Math.floor(Math.random() * NS), rand(0.15, 0.5)); }
+  }
   rainAmt += (target - rainAmt) * (1 - Math.exp(-dt / (target > rainAmt ? 0.25 : 0.9)));
   updateWind(simT);
   for (let i = drops.length - 1; i >= 0; i--) { if (simT >= drops[i].tImp) { const d = drops[i]; drops.splice(i, 1); impact(d); } }
@@ -2140,6 +2146,23 @@ function patterBuf(ctx, sec, rate) {
   }
   return b;
 }
+function dropBank(ctx) {
+  const sr = ctx.sampleRate, bank = [];
+  for (let k = 0; k < 40; k++) {
+    const big = k >= 28, len = Math.floor(sr * (big ? rand(0.05, 0.09) : rand(0.025, 0.05))), b = ctx.createBuffer(1, len, sr), o = b.getChannelData(0);
+    const f0 = big ? rand(600, 1400) : rand(1400, 4200), bub = Math.random() < (big ? 0.9 : 0.55), tau = len / sr * 0.28;
+    let ph = 0, hp = 0;
+    for (let i = 0; i < len; i++) {
+      const t = i / sr, w = Math.random() * 2 - 1;
+      hp += 0.35 * (w - hp);
+      let v = (w - hp) * Math.exp(-t / 0.0018) * 0.9;                    // 톡
+      if (bub) { ph += 6.2832 * f0 * (1 + 2.2 * t / (len / sr)) / sr; v += Math.sin(ph) * Math.exp(-t / tau) * Math.min(1, t / 0.002) * 0.55; }   // 퐁
+      o[i] = v;
+    }
+    bank.push({ b, big });
+  }
+  return bank;
+}
 function initAmb() {
   const ctx = new (window.AudioContext || window.webkitAudioContext)();
   const out = ctx.createGain(); out.gain.value = 0; out.connect(ctx.destination);
@@ -2148,10 +2171,10 @@ function initAmb() {
   const gain = v => { const g = ctx.createGain(); g.gain.value = v; return g; };
   const chain = (...n) => { for (let i = 0; i < n.length - 1; i++) n[i].connect(n[i + 1]); return n[n.length - 1]; };
   const white = noiseBuf(ctx, 3, false), brown = noiseBuf(ctx, 5, true);
-  // 비: '쏴—' 하는 바탕 + 톡톡 떨어지는 소리
+  // 비: 멀리서 수없이 떨어지는 방울이 합쳐진 '쏴—'(비가 굵을수록 커짐). 톡톡 소리는 화면의 방울이 닿을 때마다 dropSound가 냄
   const rain = gain(0); rain.connect(out);
-  chain(loop(white), filt('highpass', 500), filt('lowpass', 6500), gain(0.045), rain);
-  chain(loop(patterBuf(ctx, 4, 260)), filt('highpass', 900), filt('lowpass', 9000), gain(0.8), rain);
+  chain(loop(white), filt('highpass', 700), filt('lowpass', 5500), gain(0.03), rain);
+  const drops = gain(1); drops.connect(out);
   // 물: 낮은 소리의 크기가 천천히 오르내림(호수는 빠르고 작게 찰랑, 바다는 느리고 크게 밀려옴) + 파도 끝의 '쏴'
   const water = gain(0); water.connect(out);
   const swell = gain(0.5); chain(loop(brown), filt('lowpass', 420), swell, water);
@@ -2161,7 +2184,22 @@ function initAmb() {
   // 도시: 멀리서 들리는 낮은 웅웅거림
   const hum = gain(0); chain(loop(brown, 0.6), filt('lowpass', 180), hum, out);
   const fx = ctx.createGain(); fx.gain.value = 1; fx.connect(ctx.destination);   // 천둥·파도(한 번씩 나는 소리)
-  return { ctx, out, fx, rain, water, wash, lfo, lfoW, hum, white, brown, busy: 0 };
+  return { ctx, out, fx, rain, drops, bank: dropBank(ctx), dTok: 0, dT: 0, water, wash, lfo, lfoW, hum, white, brown, busy: 0 };
+}
+function dropSound(X, Z, size) {
+  if (!amb || !ambOn || amb.ctx.state !== 'running') return;
+  const ctx = amb.ctx, now = ctx.currentTime;
+  amb.dTok = Math.min(12, amb.dTok + (now - amb.dT) * 90); amb.dT = now;
+  const near = Z < 3;
+  if (amb.dTok < (near ? 1 : 4)) return;
+  amb.dTok -= 1;
+  const big = size > 0.5, list = amb.bank.filter(x => x.big === big), it = list[Math.floor(Math.random() * list.length)];
+  const s = ctx.createBufferSource(); s.buffer = it.b; s.playbackRate.value = rand(0.85, 1.2);
+  const g = ctx.createGain(); g.gain.value = Math.min(0.9, (0.12 + 0.6 * Math.min(1, size)) / (0.4 + Z * 0.3)) * rand(0.5, 1);
+  let n = s.connect(g);
+  if (Z > 5) { const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2600; n = n.connect(lp); }   // 먼 방울은 둥글게
+  if (ctx.createStereoPanner) { const pn = ctx.createStereoPanner(); pn.pan.value = clamp(X / Math.max(Z, 0.5) / (W / f / 2), -0.9, 0.9); n = n.connect(pn); }
+  n.connect(amb.drops); s.start(now + Math.random() * 0.01);
 }
 function setAmb(on) {
   ambOn = on; $('amb').checked = on;
@@ -2174,7 +2212,7 @@ function updateAmb(dt) {
   ambT -= dt; if (ambT > 0) return; ambT = 0.25;
   const t = amb.ctx.currentTime, p = AMBP[BG.id] || AMBP.neon;
   amb.out.gain.setTargetAtTime(ambOn ? 1.4 : 0, t, ambOn ? 0.8 : 0.35);
-  amb.rain.gain.setTargetAtTime(0.35 + 0.65 * rainAmt, t, 0.6);
+  amb.rain.gain.setTargetAtTime(rainAmt, t, 0.6);
   amb.water.gain.setTargetAtTime(p.water, t, 1.5); amb.hum.gain.setTargetAtTime(p.hum, t, 1.5);
   amb.lfo.frequency.setTargetAtTime(p.lfo, t, 1.5); amb.wash.gain.setTargetAtTime(p.wash, t, 1.5); amb.lfoW.gain.setTargetAtTime(p.wash, t, 1.5);
   // 끈 뒤 소리가 다 줄어들면 오디오를 멈춰 CPU를 아낌
