@@ -65,14 +65,12 @@
   .sw span::after{content:'';position:absolute;left:3px;top:3px;width:16px;height:16px;border-radius:50%;background:#dfe8ff;transition:transform .2s}
   .sw input:checked+span{background:#5f8fe8}
   .sw input:checked+span::after{transform:translateX(16px)}
-  .keys{font-size:10.5px;opacity:.45;text-align:center;margin-top:-4px}
   #toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);padding:9px 18px;border-radius:999px;font-size:13px;z-index:8;transition:opacity .4s;pointer-events:none}
   #toast.off{opacity:0}
   @media (max-width:600px){
     #card{left:0;right:0;bottom:0;width:auto;max-width:none;border-radius:20px 20px 0 0;padding:10px 18px calc(16px + env(safe-area-inset-bottom));transform-origin:50% 100%}
     #card[hidden]{transform:translateY(100%)}
     #card::before{content:'';align-self:center;width:38px;height:4px;border-radius:2px;background:rgba(200,220,255,.3)}
-    .keys{display:none}
   }
   #overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:18px;text-align:center;
     background:radial-gradient(ellipse at 50% 40%,rgba(14,20,50,.55),rgba(4,6,16,.88));z-index:10;padding:24px;transition:opacity .8s}
@@ -101,8 +99,8 @@
 
 <div id="dock">
   <button id="src" class="glass" title="소리 입력: 연결 안 됨 · 눌러서 다시 선택"><i></i><span>소리 연결</span></button>
-  <button id="fs" class="glass" title="전체화면 (F)">⛶</button>
-  <button id="gear" class="glass" title="설정 (S)" aria-expanded="false" aria-controls="card">⚙</button>
+  <button id="fs" class="glass" title="전체화면">⛶</button>
+  <button id="gear" class="glass" title="설정" aria-expanded="false" aria-controls="card">⚙</button>
 </div>
 
 <div id="card" class="glass" hidden role="dialog" aria-label="설정">
@@ -130,12 +128,11 @@
   </div>
   <div class="sec">
     <div class="row"><span>환경음 <span class="tip" tabindex="0" data-tip="빗소리와 배경에 맞는 물소리(호수 찰랑임, 파도, 도시의 웅웅거림)를 들려줘요. 빗소리는 화면의 비가 굵어질수록 커져요. 이 소리는 분석에 섞이지 않게 막아 둬요(마이크로 들을 때는 스피커 대신 이어폰을 권해요).">i</span></span><label class="sw"><input id="amb" type="checkbox"><span></span></label></div>
-    <div class="row"><span>천둥·번개 <span class="tip" tabindex="0" data-tip="정해진 간격 없이 가끔 번개가 쳐요. 비가 굵을수록 자주 치고, 가까운 번개는 줄기가 보이고 '콰직' 소리가 나요. 천둥은 거리만큼(1km에 약 3초) 늦게 들려요(환경음이 켜져 있을 때). A 키를 누르면 가까운 번개가 한 번 쳐요.">i</span></span><label class="sw"><input id="storm" type="checkbox" checked><span></span></label></div>
-    <div class="row"><span>건반 표시</span><label class="sw"><input id="keys" type="checkbox" checked><span></span></label></div>
+    <div class="row"><span>천둥·번개 <span class="tip" tabindex="0" data-tip="정해진 간격 없이 가끔 번개가 쳐요. 비가 굵을수록 자주 치고, 가까운 번개는 줄기가 보이고 '콰직' 소리가 나요. 천둥은 거리만큼(1km에 약 3초) 늦게 들려요(환경음이 켜져 있을 때).">i</span></span><label class="sw"><input id="storm" type="checkbox"><span></span></label></div>
+    <div class="row"><span>건반 표시</span><label class="sw"><input id="keys" type="checkbox"><span></span></label></div>
     <div class="row"><span>저사양 <span class="tip" tabindex="0" data-tip="입자 수와 해상도를 낮춰 느린 기기에서도 부드럽게 움직여요. 느려지면 자동으로 켜져요.">i</span></span><label class="sw"><input id="low" type="checkbox"><span></span></label></div>
     <button class="btn" id="saverBtn" title="Windows 화면보호기로 등록하고 설정 창을 열어요" hidden>🌧 화면보호기로 설정</button>
   </div>
-  <div class="keys">H 화면만 보기 · F 전체화면 · S 설정 · M 환경음 · T 천둥 켜고 끄기 · A 천둥 한 번</div>
 </div>
 <div id="toast" class="glass off"></div>
 
@@ -196,7 +193,7 @@ const BGS = [
   { id: 'aurora', name: '오로라 호수', bg: 3, calm: 0.03, cover: 0.35, icon: 'assets/bg-aurora.png',
     night: { zen: [0.01, 0.015, 0.04], mid: [0.03, 0.05, 0.10], hor: [0.06, 0.10, 0.16], cld: [0.02, 0.04, 0.05], haze: [0.06, 0.09, 0.14], deep: [0.008, 0.02, 0.04] } }
 ];
-let BG = BGS[0];
+let BG = BGS.find(b => b.id === 'aurora');
 const TODS = [
   { id: 'live', name: '실시간' }, { id: 'dawn', name: '새벽' }, { id: 'morning', name: '아침' }, { id: 'dusk', name: '황혼' }, { id: 'night', name: '밤' }
 ];
@@ -269,7 +266,7 @@ function skyTarget() {
 // 번개·천둥: 정해진 간격 없이 무작위로(비가 굵을수록 자주, 가끔은 연달아). 모양·위치·종류도 매번 무작위.
 // 가까우면 땅으로 내리치는 굵은 번개(곁가지 여러 개), 멀면 구름 속을 옆으로 기는 번개나 구름만 번쩍.
 // 한 번 칠 때 2~5번 끊어 번쩍임(되돌이 뇌격). 소리는 거리만큼(1km당 약 3초) 늦게 도착
-const storm = { on: true, next: rand(12, 40), strokes: [], t: 9, flash: 0, bolt: 0, a: 0, seed: 0, top: 0.15, type: 0, close: false };
+const storm = { on: false, next: rand(12, 40), strokes: [], t: 9, flash: 0, bolt: 0, a: 0, seed: 0, top: 0.15, type: 0, close: false };
 function strike(dKm, force) {
   const d = dKm || 0.4 + 11 * Math.pow(Math.random(), 1.6), close = d < 2.2;
   storm.a = close ? rand(-0.45, 0.45) : rand(-0.6, 0.6); storm.seed = Math.random() * 100; storm.top = rand(0.1, 0.19); storm.close = close; storm.t = 0; storm.strokes = [];   // 가까운 번개는 잘 보이는 곳에
@@ -450,7 +447,7 @@ const glc = $('gl'), cv = $('c'), g = cv.getContext('2d');
 const overlay = $('overlay'), msg = $('msg');
 function showMsg(t) { msg.textContent = t || ''; }
 
-let LOW = window.matchMedia('(pointer:coarse)').matches;
+let LOW = false;
 $('low').checked = LOW;
 const G = 5.0;                       // 효과 시간축의 중력(월드 단위/s²). TSCALE과 합쳐 실제 약 9m/s²
 // 실제 빗방울(지름 2~5mm) 스플래시 크기에 맞춘 축척: 길이 ×0.45, 속도 ×√0.45(→ 솟는 높이도 ×0.45)
@@ -1257,8 +1254,8 @@ window.addEventListener('resize', resize);
    ====================================================================== */
 const drops = [], parts = [], crowns = [], jets = [], craters = [], bubbles = [], floaters = [], flashes = [], timers = [], EV = [];
 const keyGlow = new Float32Array(128);
-let started = false, showKeys = true;
-let fallT = 0.3, sens = 0.5, hitCount = 0;
+let started = false, showKeys = false;
+let fallT = 0.2, sens = 0.5, hitCount = 0;
 const hitLog = [];
 let simT = 0, fxT = 0;
 // 스플래시·파문의 시간 배속. 3이면 거의 실제 속도(이전 버전은 약 3배 슬로모션)
@@ -1510,7 +1507,7 @@ async function startCapture(kind) {
   capT0 = clk(); hitLog.length = 0;
   capKind = kind; started = true; overlay.classList.add('hide');
   // 브라우저의 '공유 중' 막대는 페이지가 지울 수 없음 → 전체화면이면 가려진다고 알려 줌
-  if (kind === 'system' && !HOST && !document.fullscreenElement) toast('전체화면(F)으로 보면 위쪽 공유 막대가 가려져요', 5000);
+  if (kind === 'system' && !HOST && !document.fullscreenElement) toast('전체화면으로 보면 위쪽 공유 막대가 가려져요', 5000);
 }
 
 /* ======================================================================
@@ -1614,7 +1611,6 @@ function impactAt(X, Z, e) {
   else if (Math.random() < 0.08) later(0.1, () => bubbles.push({ X, Z, r: rand(0.008, 0.016), t: 0, life: rand(0.5, 1.5), hue: 210, vx: rand(-0.02, 0.02), vz: rand(-0.02, 0.02) }));
 }
 function impact(d) {
-  dropSound(d.X, d.Z, d.kind === 'amb' ? d.sz : 0.6 + d.sz);
   if (d.kind === 'amb') { impactAt(d.X, d.Z, d.sz); return; }
   splash(d.X, d.Z, d.e, d.hue, d.wx * 0.5);
 }
@@ -2000,7 +1996,7 @@ function updateStreaks(dt) {
     s.X += s.vx * dt; s.Y += s.vy * dt; s.Z += s.vz * dt;
     let gone = s.Z < 0.4 || s.Z > 19;
     if (s.Y <= 0) {
-      gone = true; dropSound(s.X, s.Z, s.r * 0.35);
+      gone = true;
       if (s.Z > 0.8 && s.Z < 4 && impTok >= 1) { impTok -= 1; impactAt(s.X, s.Z, 0.1 + 0.12 * s.r); }   // 가까운 방울은 떨어진 자리에 파문(초당 최대 약 30개)
     }
     if (gone) { rainS[i] = rainS[rainS.length - 1]; rainS.pop(); }
@@ -2081,9 +2077,10 @@ function step(dt) {
   updateSky(dt); updateBeam(dt); updateStorm(dt); updateSea(dt);
   if (!manual) analyze(dt);
   let target = analyser ? clamp(soundLvl / 8, 0, 1) : 0;   // 조용해지면 비가 그침
-  if (ambOn) {                                            // 환경음을 켜 두면 조용해도 잔잔한 비는 계속
-    target = Math.max(target, 0.18);
-    ambDriz += dt * (LOW ? 90 : 200);
+  if (ambOn) {                                            // 환경음을 켜 두면 조용해도 비가 내림(굵기가 천천히 오르내림)
+    const nr = 0.5 + 0.3 * Math.sin(simT * 0.021 + 1.3) + 0.2 * Math.sin(simT * 0.057 + 4.1);
+    target = Math.max(target, 0.1 + 0.3 * nr);
+    ambDriz += dt * (LOW ? 0.45 : 1) * (180 + 700 * nr * nr);
     while (ambDriz >= 1) { ambDriz -= 1; spawnDrizzle(MIN_MIDI + Math.floor(Math.random() * NS), rand(0.15, 0.5)); }
   }
   rainAmt += (target - rainAmt) * (1 - Math.exp(-dt / (target > rainAmt ? 0.25 : 0.9)));
@@ -2146,23 +2143,6 @@ function patterBuf(ctx, sec, rate) {
   }
   return b;
 }
-function dropBank(ctx) {
-  const sr = ctx.sampleRate, bank = [];
-  for (let k = 0; k < 40; k++) {
-    const big = k >= 28, len = Math.floor(sr * (big ? rand(0.05, 0.09) : rand(0.025, 0.05))), b = ctx.createBuffer(1, len, sr), o = b.getChannelData(0);
-    const f0 = big ? rand(600, 1400) : rand(1400, 4200), bub = Math.random() < (big ? 0.9 : 0.55), tau = len / sr * 0.28;
-    let ph = 0, hp = 0;
-    for (let i = 0; i < len; i++) {
-      const t = i / sr, w = Math.random() * 2 - 1;
-      hp += 0.35 * (w - hp);
-      let v = (w - hp) * Math.exp(-t / 0.0018) * 0.9;                    // 톡
-      if (bub) { ph += 6.2832 * f0 * (1 + 2.2 * t / (len / sr)) / sr; v += Math.sin(ph) * Math.exp(-t / tau) * Math.min(1, t / 0.002) * 0.55; }   // 퐁
-      o[i] = v;
-    }
-    bank.push({ b, big });
-  }
-  return bank;
-}
 function initAmb() {
   const ctx = new (window.AudioContext || window.webkitAudioContext)();
   const out = ctx.createGain(); out.gain.value = 0; out.connect(ctx.destination);
@@ -2171,10 +2151,10 @@ function initAmb() {
   const gain = v => { const g = ctx.createGain(); g.gain.value = v; return g; };
   const chain = (...n) => { for (let i = 0; i < n.length - 1; i++) n[i].connect(n[i + 1]); return n[n.length - 1]; };
   const white = noiseBuf(ctx, 3, false), brown = noiseBuf(ctx, 5, true);
-  // 비: 멀리서 수없이 떨어지는 방울이 합쳐진 '쏴—'(비가 굵을수록 커짐). 톡톡 소리는 화면의 방울이 닿을 때마다 dropSound가 냄
+  // 비: '쏴—' 하는 바탕 + 톡톡 떨어지는 소리
   const rain = gain(0); rain.connect(out);
-  chain(loop(white), filt('highpass', 700), filt('lowpass', 5500), gain(0.03), rain);
-  const drops = gain(1); drops.connect(out);
+  chain(loop(white), filt('highpass', 500), filt('lowpass', 6500), gain(0.045), rain);
+  chain(loop(patterBuf(ctx, 4, 260)), filt('highpass', 900), filt('lowpass', 9000), gain(0.8), rain);
   // 물: 낮은 소리의 크기가 천천히 오르내림(호수는 빠르고 작게 찰랑, 바다는 느리고 크게 밀려옴) + 파도 끝의 '쏴'
   const water = gain(0); water.connect(out);
   const swell = gain(0.5); chain(loop(brown), filt('lowpass', 420), swell, water);
@@ -2184,22 +2164,7 @@ function initAmb() {
   // 도시: 멀리서 들리는 낮은 웅웅거림
   const hum = gain(0); chain(loop(brown, 0.6), filt('lowpass', 180), hum, out);
   const fx = ctx.createGain(); fx.gain.value = 1; fx.connect(ctx.destination);   // 천둥·파도(한 번씩 나는 소리)
-  return { ctx, out, fx, rain, drops, bank: dropBank(ctx), dTok: 0, dT: 0, water, wash, lfo, lfoW, hum, white, brown, busy: 0 };
-}
-function dropSound(X, Z, size) {
-  if (!amb || !ambOn || amb.ctx.state !== 'running') return;
-  const ctx = amb.ctx, now = ctx.currentTime;
-  amb.dTok = Math.min(12, amb.dTok + (now - amb.dT) * 90); amb.dT = now;
-  const near = Z < 3;
-  if (amb.dTok < (near ? 1 : 4)) return;
-  amb.dTok -= 1;
-  const big = size > 0.5, list = amb.bank.filter(x => x.big === big), it = list[Math.floor(Math.random() * list.length)];
-  const s = ctx.createBufferSource(); s.buffer = it.b; s.playbackRate.value = rand(0.85, 1.2);
-  const g = ctx.createGain(); g.gain.value = Math.min(0.9, (0.12 + 0.6 * Math.min(1, size)) / (0.4 + Z * 0.3)) * rand(0.5, 1);
-  let n = s.connect(g);
-  if (Z > 5) { const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2600; n = n.connect(lp); }   // 먼 방울은 둥글게
-  if (ctx.createStereoPanner) { const pn = ctx.createStereoPanner(); pn.pan.value = clamp(X / Math.max(Z, 0.5) / (W / f / 2), -0.9, 0.9); n = n.connect(pn); }
-  n.connect(amb.drops); s.start(now + Math.random() * 0.01);
+  return { ctx, out, fx, rain, water, wash, lfo, lfoW, hum, white, brown, busy: 0 };
 }
 function setAmb(on) {
   ambOn = on; $('amb').checked = on;
@@ -2212,7 +2177,7 @@ function updateAmb(dt) {
   ambT -= dt; if (ambT > 0) return; ambT = 0.25;
   const t = amb.ctx.currentTime, p = AMBP[BG.id] || AMBP.neon;
   amb.out.gain.setTargetAtTime(ambOn ? 1.4 : 0, t, ambOn ? 0.8 : 0.35);
-  amb.rain.gain.setTargetAtTime(rainAmt, t, 0.6);
+  amb.rain.gain.setTargetAtTime(0.35 + 0.65 * rainAmt, t, 0.6);
   amb.water.gain.setTargetAtTime(p.water, t, 1.5); amb.hum.gain.setTargetAtTime(p.hum, t, 1.5);
   amb.lfo.frequency.setTargetAtTime(p.lfo, t, 1.5); amb.wash.gain.setTargetAtTime(p.wash, t, 1.5); amb.lfoW.gain.setTargetAtTime(p.wash, t, 1.5);
   // 끈 뒤 소리가 다 줄어들면 오디오를 멈춰 CPU를 아낌
@@ -2224,7 +2189,6 @@ $('storm').addEventListener('change', e => { storm.on = e.target.checked; savePr
 // 저장된 설정이 '켬'이면 첫 클릭·키 입력 때 시작(브라우저는 사용자 조작 전 소리를 막음)
 function ambFirstGesture(ev) {
   ['pointerdown', 'keydown'].forEach(ev => window.removeEventListener(ev, ambFirstGesture));
-  if (ev && ev.type === 'keydown' && ev.code === 'KeyM') { ambOn = false; return; }   // M 키는 아래 단축키가 켜 줌
   if (ambOn) setAmb(true);
 }
 function savePrefs() { try { localStorage.setItem(PREF, JSON.stringify({ sens, fallT, showKeys, scene: SCENE.id, bg: BG.id, tod: TOD.id, amb: ambOn, storm: storm.on })); } catch (e) {} }
@@ -2343,18 +2307,10 @@ let toastT = 0;
 function toast(t, ms) { const el = $('toast'); el.textContent = t; el.classList.remove('off'); clearTimeout(toastT); toastT = setTimeout(() => el.classList.add('off'), ms || 2200); }
 
 
-// 단축키: H 화면만 보기 · F 전체화면 · S 설정 · Esc 닫기
 window.addEventListener('keydown', e => {
-  if (e.ctrlKey || e.metaKey || e.altKey || SAVER) return;
-  // 한글 입력 상태에서도 되도록 글자(e.key: 'ㅁ') 대신 키 위치(e.code: 'KeyA')로 판단
-  const k = e.code === 'Escape' ? 'escape' : e.code.startsWith('Key') ? e.code.slice(3).toLowerCase() : '';
-  if (k === 'h') { const on = !document.body.classList.toggle('hideui'); if (!on) { openCard(false); toast('화면만 보기 · H를 누르면 다시 보여요'); } }
-  else if (k === 'f') toggleFs();
-  else if (k === 's') openCard(card.hidden);
-  else if (k === 'escape') openCard(false);
-  else if (k === 't') { storm.on = !storm.on; $('storm').checked = storm.on; savePrefs(); toast(storm.on ? '천둥·번개 켬' : '천둥·번개 끔'); }
-  else if (k === 'a') { strike(rand(0.5, 1.8), true); }                  // 테스트: 가까운 번개·천둥 한 번
-  else if (k === 'm') { setAmb(!ambOn); savePrefs(); toast(ambOn ? '환경음 켬' : '환경음 끔'); }
+  if (e.ctrlKey || e.metaKey || e.altKey || SAVER || e.repeat) return;
+  if (e.code === 'Escape') openCard(false);
+  else if (e.code === 'KeyA') strike(rand(0.5, 1.8), true);
 });
 const canSys = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) && !window.matchMedia('(pointer:coarse)').matches;
 if (HOST) $('sysnote').textContent = '이 앱은 기기에서 나오는 모든 소리를 공유 창이나 마이크 권한 없이 바로 들어요. 소리는 그대로 들리고 분석만 합니다.';
