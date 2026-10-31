@@ -26,6 +26,8 @@
     border-radius:18px;padding:16px 16px 12px;z-index:7;font-size:13px;display:flex;flex-direction:column;gap:14px;
     transition:opacity .2s,transform .2s;transform-origin:100% 100%;max-height:calc(100vh - 90px);overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain}
   #card[hidden]{display:flex;opacity:0;transform:translateY(8px) scale(.98);pointer-events:none;visibility:hidden}
+  #cardClose{position:absolute;top:10px;right:10px;width:30px;height:30px;border-radius:50%;border:0;background:rgba(255,255,255,.08);color:#dce8ff;font-size:14px;cursor:pointer;display:grid;place-items:center;z-index:1}
+  #cardClose:hover{background:rgba(255,255,255,.18)}
   #card h3{margin:0;font-size:12px;font-weight:600;letter-spacing:.04em;color:#e8f0ff;display:flex;align-items:center;gap:6px}
   #card h3 .val{margin-left:auto;font-weight:400;opacity:.6;font-variant-numeric:tabular-nums}
   .sec{display:flex;flex-direction:column;gap:8px}
@@ -109,6 +111,7 @@
 </div>
 
 <div id="card" class="glass" hidden role="dialog" aria-label="설정">
+  <button id="cardClose" title="닫기" aria-label="설정 닫기">✕</button>
   <div class="sec">
     <h3>배경</h3>
     <div class="scenes" id="bgs"></div>
@@ -2349,6 +2352,8 @@ try {
     if (p.ai) setBP(true);
     if (p.storm === false) { storm.on = false; $('storm').checked = false; }
     if (p.amb) { ambOn = true; $('amb').checked = true; ['pointerdown', 'keydown'].forEach(ev => window.addEventListener(ev, ambFirstGesture)); } }
+  // 휴대폰으로 처음 온 사람: 소리를 연결하기 전에도 화면이 비어 보이지 않게 환경음(무작위 비)을 켜 둠. 소리는 첫 터치 때 시작
+  else if (window.matchMedia('(pointer:coarse)').matches) { ambOn = true; $('amb').checked = true; ['pointerdown', 'keydown'].forEach(ev => window.addEventListener(ev, ambFirstGesture)); }
 } catch (e) {}
 // 주소의 ?scene= ?bg= ?time= 이 저장값보다 우선(예전 /v1/ 주소는 ?scene=lively 로 옴)
 const QS = new URLSearchParams(location.search);
@@ -2458,6 +2463,7 @@ function openCard(on) {
   card.hidden = !on; gear.setAttribute('aria-expanded', on);
 }
 gear.addEventListener('click', () => openCard(card.hidden));
+$('cardClose').addEventListener('click', () => openCard(false));
 window.addEventListener('pointerdown', e => { if (!card.hidden && !card.contains(e.target) && !$('dock').contains(e.target)) openCard(false); });
 
 let toastT = 0;
