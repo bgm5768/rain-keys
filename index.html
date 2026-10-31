@@ -1475,9 +1475,10 @@ function spawnNote(s, str, tDet, late) {
    켜 두면 기존 방식의 '새 음' 검출은 쉬고(잔비·소리 크기는 그대로) 이 모델이 음을 정함.
    ====================================================================== */
 const BP_SR = 22050, BP_N = 43844, BP_FPS = BP_SR / 256;
+const BP_HARM = [12, 19, 24, 28];
 let BP_EDGE = 8;   // 창 끝에서 버리는 프레임(가장자리라 부정확). 줄일수록 빨라지지만 정확도가 떨어짐
 const bp = { on: false, state: 'off', model: null, ring: new Float32Array(BP_N), w: 0, filled: 0, endT: 0, busy: false, last: 0,
-  ac: null, node: null, src: null, backend: '', lastOn: new Float32Array(88).fill(-9), ms: 0, lat: 0, thr: 0.8, thrLow: 0.4 };
+  ac: null, node: null, src: null, backend: '', recent: [], harmK: 0.85, lastOn: new Float32Array(88).fill(-9), ms: 0, lat: 0, thr: 0, thrLow: 0.5 };
 function loadScript(url) {
   return new Promise((res, rej) => { const s = document.createElement('script'); s.src = url; s.onload = res; s.onerror = () => rej(new Error('load ' + url)); document.head.appendChild(s); });
 }
@@ -1560,6 +1561,7 @@ async function bpStep() {
   const [on, fr] = await Promise.all(out.map(x => x.data())); out.forEach(x => x.dispose());
   bp.ms = bp.ms * 0.8 + (performance.now() - t0) * 0.2;
   // 지난번 이후 새로 들어온 만큼(+조금 겹치게, 같은 음 두 번은 아래에서 거름)만 살펴봄
+  const cand = [];
   const span = bp.prevEnd && endT - bp.prevEnd < 1 ? endT - bp.prevEnd : 0.3;
   const NF = on.length / 88, f1 = NF - BP_EDGE, f0 = Math.max(1, f1 - Math.ceil(span * BP_FPS) - 3);
   bp.prevEnd = endT;   // 이번에 새로 확정된 프레임(조금 겹치게)
@@ -1567,16 +1569,27 @@ async function bpStep() {
   for (let f = f0; f < f1; f++) {
     for (let p = 0; p < 88; p++) {
       const v = on[f * 88 + p];
-      const th = p < 15 ? bp.thrLow : bp.thr;   // 가장 낮은 음(C2 아래)은 모델 확신이 약하게 나와 문턱을 낮춤
+      // 문턱: 곡 분위기(sens)를 따라감 — 보통 0.7, 아주 조용 0.55, 아주 시끄러움 0.84
+      const th = p < 15 ? bp.thrLow : bp.thr || 0.7 - (sens - 0.5) * 0.375;   // 가장 낮은 음(C2 아래)은 모델 확신이 약하게 나와 문턱을 낮춤
       if (v < th || v < on[(f - 1) * 88 + p] || v < on[(f + 1) * 88 + p]) continue;   // 시간축 봉우리만
       if (fr[(f + 1) * 88 + p] < 0.25 && fr[(f + 2) * 88 + p] < 0.25) continue;          // 바로 이어지는 소리가 없으면 잡음
       const tOn = tWin0 + (f + 0.5) * 256 / BP_SR;
       if (tOn - bp.lastOn[p] < 0.12) continue;                                            // 같은 음을 두 번 세지 않게
-      bp.lastOn[p] = tOn;
-      const age = now - tOn; bp.lat = bp.lat * 0.9 + age * 0.1;
-      spawnNote(p, clamp(0.25 + 0.75 * Math.max(v, fr[(f + 1) * 88 + p]), 0.2, 1), tOn, age);
+      cand.push({ p, v, tOn, str: Math.max(v, fr[(f + 1) * 88 + p]) });
     }
   }
+  // 배음·저음 착각 거르기: 거의 같은 순간에 옥타브·12도·2옥타브 떨어진 음이 훨씬 확실하게 잡혔으면, 약한 쪽은 버림
+  // (실제로 같이 친 옥타브는 둘 다 확실하게 나와서 남음)
+  cand.sort((a, b) => b.v - a.v);
+  for (const c of cand) {
+    const shadow = c.p >= 15 && bp.recent.some(r =>   // 가장 낮은 음은 원래 확신이 약해 거르지 않음
+      Math.abs(r.tOn - c.tOn) < 0.09 && BP_HARM.includes(Math.abs(r.p - c.p)) && c.v < r.v * bp.harmK);
+    if (shadow) continue;
+    bp.lastOn[c.p] = c.tOn; bp.recent.push(c);
+    const age = now - c.tOn; bp.lat = bp.lat * 0.9 + age * 0.1;
+    spawnNote(c.p, clamp(0.25 + 0.75 * c.str, 0.2, 1), c.tOn, age);
+  }
+  while (bp.recent.length && now - bp.recent[0].tOn > 0.5) bp.recent.shift();
   } finally { bpUI(); bp.busy = false; }
 }
 
@@ -2343,7 +2356,8 @@ setScene(QS.get('scene')); setBg(QS.get('bg')); setTod(QS.get('time'));
 if (QS.get('ai') === '1') setBP(true);
 if (QS.get('aithr')) bp.thr = +QS.get('aithr');
 if (QS.get('aithrlow')) bp.thrLow = +QS.get('aithrlow');
-if (QS.get('aiedge')) BP_EDGE = +QS.get('aiedge');   // 시험용: 음 시작 확률 문턱
+if (QS.get('aiedge')) BP_EDGE = +QS.get('aiedge');
+if (QS.get('aiharm')) bp.harmK = +QS.get('aiharm');   // 시험용: 음 시작 확률 문턱
 // 아이콘 타일 줄: 목록에서 자동으로 만듦(항목을 더하면 타일도 생김)
 function tileRow(el, list, onPick) {
   for (const it of list) {

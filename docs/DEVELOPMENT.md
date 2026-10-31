@@ -16,9 +16,10 @@ node tools/serve.js          # http://localhost:8766/
 cd tools && npm install && npx playwright install chromium   # 처음 한 번(promo는 설치된 Chrome 사용)
 node synth-piano.js            # tools/out/piano.wav + truth.json (정답 악보)
 node synth-piano-wide.js       # 넓은 음역 세트
+node synth-piano-real.js       # 실제 연주풍 세트(화음·페달·잔향) — 가장 현실에 가까움
 node serve.js &                # 서버
 node accuracy.js               # 기존 방식 정확도
-AI=1 node accuracy.js          # AI 음 인식 정확도 (WIDE=1 로 넓은 음역)
+AI=1 node accuracy.js          # AI 음 인식 정확도 (WIDE=1 넓은 음역, REAL=1 실제 연주풍)
 node render-scenes.js          # 배경×시간대 스크린샷 → tools/out/
 node promo.js                  # 10초 홍보 영상 → tools/out/promo.mp4
 ```
