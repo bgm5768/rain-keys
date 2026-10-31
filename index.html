@@ -1474,9 +1474,10 @@ function spawnNote(s, str, tDet, late) {
    → 소리부터 빗방울 생성까지 약 0.25~0.35초. 그만큼 방울이 떨어지는 시간을 줄여 착수 순간은 소리에 맞춤.
    켜 두면 기존 방식의 '새 음' 검출은 쉬고(잔비·소리 크기는 그대로) 이 모델이 음을 정함.
    ====================================================================== */
-const BP_SR = 22050, BP_N = 43844, BP_FPS = BP_SR / 256, BP_EDGE = 15;
+const BP_SR = 22050, BP_N = 43844, BP_FPS = BP_SR / 256;
+let BP_EDGE = 8;   // 창 끝에서 버리는 프레임(가장자리라 부정확). 줄일수록 빨라지지만 정확도가 떨어짐
 const bp = { on: false, state: 'off', model: null, ring: new Float32Array(BP_N), w: 0, filled: 0, endT: 0, busy: false, last: 0,
-  ac: null, node: null, src: null, lastOn: new Float32Array(88).fill(-9), ms: 0, lat: 0, thr: 0.8, thrLow: 0.4 };
+  ac: null, node: null, src: null, backend: '', lastOn: new Float32Array(88).fill(-9), ms: 0, lat: 0, thr: 0.8, thrLow: 0.4 };
 function loadScript(url) {
   return new Promise((res, rej) => { const s = document.createElement('script'); s.src = url; s.onload = res; s.onerror = () => rej(new Error('load ' + url)); document.head.appendChild(s); });
 }
@@ -1484,10 +1485,30 @@ async function bpLoad() {
   if (bp.model) return true;
   bp.state = 'loading'; bpUI();
   try {
-    if (!window.tf) await loadScript('https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.21.0/dist/tf.min.js');
-    await tf.ready();
-    bp.model = await tf.loadGraphModel(new URL('assets/basic-pitch/model.json', location.href).href);
-    tf.tidy(() => bp.model.execute(tf.zeros([1, BP_N, 1]), ['Identity_2']));   // 첫 실행은 느리므로 미리 한 번
+    const CDN = 'https://cdn.jsdelivr.net/npm/@tensorflow/';
+    if (!window.tf) await loadScript(CDN + 'tfjs@4.22.0/dist/tf.min.js');
+    // 기기마다 가장 빠른 계산 방식이 다름(휴대폰은 WASM이나 WebGPU가 WebGL보다 빠른 경우가 많음) → 하나씩 재 보고 가장 빠른 것으로
+    const cands = ['webgl'];
+    const only = new URLSearchParams(location.search).get('aibe');   // 시험용: 계산 방식 고정
+    try { await loadScript(CDN + 'tfjs-backend-wasm@4.22.0/dist/tf-backend-wasm.min.js'); tf.wasm.setWasmPaths(CDN + 'tfjs-backend-wasm@4.22.0/dist/'); cands.push('wasm'); } catch (e) {}
+    if (navigator.gpu) { try { await loadScript(CDN + 'tfjs-backend-webgpu@4.22.0/dist/tf-backend-webgpu.min.js'); cands.push('webgpu'); } catch (e) {} }
+    const url = new URL('assets/basic-pitch/model.json', location.href).href;
+    let best = null;
+    for (const be of cands) {
+      if (only && be !== only) continue;
+      try {
+        if (!(await tf.setBackend(be))) continue;
+        await tf.ready();
+        const m = await tf.loadGraphModel(url), x = tf.zeros([1, BP_N, 1]);
+        const run = async () => { const o = m.execute(x, ['Identity_2', 'Identity_1']); await Promise.all(o.map(t => t.data())); o.forEach(t => t.dispose()); };
+        await run();                                                       // 첫 실행은 준비 시간이라 빼고
+        const t0 = performance.now(); await run(); await run(); const ms = (performance.now() - t0) / 2;
+        x.dispose();
+        if (!best || ms < best.ms) { if (best) best.m.dispose(); best = { be, m, ms }; } else m.dispose();
+      } catch (e) { console.warn('backend', be, e); }
+    }
+    if (!best) throw new Error('no backend');
+    await tf.setBackend(best.be); bp.model = best.m; bp.backend = best.be; bp.ms = best.ms;
     return true;
   } catch (e) {
     console.warn(e); bp.state = 'error'; bpUI(); return false;
@@ -1524,19 +1545,24 @@ async function setBP(on) {
 }
 function bpUI() {
   const t = { off: '', loading: '모델 불러오는 중…', wait: '소리를 연결하면 시작해요', on: '', error: '불러오지 못했어요 · 기존 방식으로 들어요' }[bp.state];
-  $('bpInfo').textContent = bp.state === 'on' && bp.ms ? `인식 ${Math.round(bp.ms)}ms · 지연 약 ${Math.round(bp.lat * 1000)}ms` : t;
+  const slow = bp.state === 'on' && bp.lat > fallT + 0.05;                // 인식이 방울 떨어지는 시간보다 늦으면 착수가 소리보다 늦음
+  $('bpInfo').textContent = bp.state === 'on' && bp.ms ? `인식 ${Math.round(bp.ms)}ms(${bp.backend}) · 지연 약 ${Math.round(bp.lat * 1000)}ms` + (slow ? ` · 비 속도를 ${bp.lat > 0.42 ? "'가장 느리게'" : "'느리게'"} 이상으로 하면 박자가 맞아요` : '') : t;
 }
 // 0.15초마다: 최근 2초 → 모델 → 새로 확정된 구간에서 음 시작 찾기
 async function bpStep() {
-  if (!bp.on || bp.state !== 'on' || bp.busy || bp.filled < BP_N * 0.6 || clk() - bp.last < 0.15) return;
+  if (!bp.on || bp.state !== 'on' || bp.busy || bp.filled < BP_N * 0.6 || clk() - bp.last < Math.max(0.1, bp.ms / 1000)) return;   // 계산이 느린 기기는 그만큼 덜 자주
   bp.busy = true; bp.last = clk();
+  try {
   const t0 = performance.now(), endT = bp.endT;
   const win = new Float32Array(BP_N);
   win.set(bp.ring.subarray(bp.w)); win.set(bp.ring.subarray(0, bp.w), BP_N - bp.w);
   const out = tf.tidy(() => bp.model.execute(tf.tensor(win, [1, BP_N, 1]), ['Identity_2', 'Identity_1']));
   const [on, fr] = await Promise.all(out.map(x => x.data())); out.forEach(x => x.dispose());
   bp.ms = bp.ms * 0.8 + (performance.now() - t0) * 0.2;
-  const NF = on.length / 88, f0 = NF - BP_EDGE - Math.ceil(0.2 * BP_FPS), f1 = NF - BP_EDGE;   // 이번에 새로 확정된 프레임(조금 겹치게)
+  // 지난번 이후 새로 들어온 만큼(+조금 겹치게, 같은 음 두 번은 아래에서 거름)만 살펴봄
+  const span = bp.prevEnd && endT - bp.prevEnd < 1 ? endT - bp.prevEnd : 0.3;
+  const NF = on.length / 88, f1 = NF - BP_EDGE, f0 = Math.max(1, f1 - Math.ceil(span * BP_FPS) - 3);
+  bp.prevEnd = endT;   // 이번에 새로 확정된 프레임(조금 겹치게)
   const tWin0 = endT - BP_N / BP_SR, now = clk();
   for (let f = f0; f < f1; f++) {
     for (let p = 0; p < 88; p++) {
@@ -1551,7 +1577,7 @@ async function bpStep() {
       spawnNote(p, clamp(0.25 + 0.75 * Math.max(v, fr[(f + 1) * 88 + p]), 0.2, 1), tOn, age);
     }
   }
-  bpUI(); bp.busy = false;
+  } finally { bpUI(); bp.busy = false; }
 }
 
 /* ======================================================================
@@ -2316,7 +2342,8 @@ const QS = new URLSearchParams(location.search);
 setScene(QS.get('scene')); setBg(QS.get('bg')); setTod(QS.get('time'));
 if (QS.get('ai') === '1') setBP(true);
 if (QS.get('aithr')) bp.thr = +QS.get('aithr');
-if (QS.get('aithrlow')) bp.thrLow = +QS.get('aithrlow');   // 시험용: 음 시작 확률 문턱
+if (QS.get('aithrlow')) bp.thrLow = +QS.get('aithrlow');
+if (QS.get('aiedge')) BP_EDGE = +QS.get('aiedge');   // 시험용: 음 시작 확률 문턱
 // 아이콘 타일 줄: 목록에서 자동으로 만듦(항목을 더하면 타일도 생김)
 function tileRow(el, list, onPick) {
   for (const it of list) {
@@ -2495,7 +2522,7 @@ autoStart();
 // 테스트용 훅
 window.RK = {
   splash: (fx, Z, e, reg) => { const X = (fx * W - cx) * Z / f; splash(X, Z, e, 200, 0, reg); },
-  bp, beam, strike, storm, sea, thunderBuf, waveBuf, setBg, setTod, get amb() { return amb; }, spawnNote, drizzle: (m, lv) => spawnDrizzle(m, lv), hitLog, get capT0() { return capT0; }, get started() { return started; }, get hits() { return hitCount; }, get gl() { return glReady; }, get fps() { return fps; },
+  bp, restart: () => startCapture(capKind || 'mic'), beam, strike, storm, sea, thunderBuf, waveBuf, setBg, setTod, get amb() { return amb; }, spawnNote, drizzle: (m, lv) => spawnDrizzle(m, lv), hitLog, get capT0() { return capT0; }, get started() { return started; }, get hits() { return hitCount; }, get gl() { return glReady; }, get fps() { return fps; },
   manual(on) { manual = on; }, step(n, dt) { for (let i = 0; i < n; i++) step(dt); draw(); },
   clear() { drops.length = parts.length = crowns.length = jets.length = craters.length = bubbles.length = floaters.length = flashes.length = timers.length = EV.length = 0; rainS.length = 0; },
   dump: () => ({ jets: jets.map(j => [+j.t.toFixed(2), +jetLen(j).toFixed(3), j.det, +j.vy.toFixed(2)]), crowns: crowns.map(c => [+c.t.toFixed(2), c.life.toFixed(2)]), craters: craters.length, bub: bubbles.length, drops: drops.length, parts: parts.filter(p => !(p.Y > -1 && p.Y < 5)).length }),

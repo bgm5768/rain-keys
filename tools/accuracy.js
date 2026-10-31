@@ -16,10 +16,14 @@ const URL = (process.env.BASE || 'http://localhost:8766/') + (process.env.AI ? '
   const page = await (await browser.newContext({ viewport: { width: 1280, height: 760 }, permissions: ['microphone'] })).newPage();
   const errs = []; page.on('pageerror', e => errs.push(e.message));
   await page.goto(URL);
-  await page.waitForTimeout(process.env.AI ? 6000 : 800);                  // AI 모델 불러오는 시간
+  await page.waitForTimeout(800);
   if (!(await page.evaluate(() => RK.started))) await page.mouse.click(640, 380);
+  if (process.env.AI) {                                                     // 모델이 준비된 뒤 처음부터 다시 듣기
+    await page.waitForFunction(() => RK.bp.state === 'on', null, { timeout: 60000 });
+    await page.evaluate(() => RK.restart()); await page.waitForTimeout(300);
+  }
   await page.waitForTimeout(31000);
-  const res = await page.evaluate(() => ({ log: RK.hitLog.slice(), t0: RK.capT0, bp: { state: RK.bp.state, ms: Math.round(RK.bp.ms), latMs: Math.round(RK.bp.lat * 1000) } }));
+  const res = await page.evaluate(() => ({ log: RK.hitLog.slice(), t0: RK.capT0, bp: { state: RK.bp.state, backend: RK.bp.backend, ms: Math.round(RK.bp.ms), latMs: Math.round(RK.bp.lat * 1000) } }));
   await browser.close();
   const det = res.log.map(h => ({ m: h.midi, t: h.t - res.t0 })).filter(d => d.t < 30), tr = truth.filter(n => n.t < 29.5);
   // 가짜 마이크 시작 시점을 모르므로 가장 잘 맞는 시간 차이를 찾음
