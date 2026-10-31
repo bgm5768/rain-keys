@@ -86,11 +86,16 @@
     background:rgba(10,14,34,.62);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid rgba(170,200,255,.35);
     color:#eaf3ff;font-size:15px;letter-spacing:.04em;pointer-events:none;animation:pulse 2.2s ease-in-out infinite}
   #tap[hidden]{display:none}
+  #enter{position:fixed;left:50%;bottom:calc(max(22px,env(safe-area-inset-bottom)) + 64px);transform:translateX(-50%);z-index:5;padding:11px 22px;border-radius:999px;
+    background:rgba(10,14,34,.5);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid rgba(170,200,255,.25);
+    color:#eaf3ff;font-size:14px;letter-spacing:.03em;white-space:nowrap;pointer-events:none;animation:pulse 2.6s ease-in-out infinite;transition:opacity .6s}
+  #enter[hidden]{display:none}
+  #enter small{display:block;text-align:center;font-size:11px;opacity:.6;margin-top:3px;letter-spacing:0}
   @keyframes pulse{50%{opacity:.55}}
   .msg{min-height:1.2em;color:#ffb4c4;font-size:13px;max-width:34em}
   /* 데스크톱 앱의 화면보호기 모드: 조작 UI 없이 바다만 */
   body.saver{cursor:none}
-  body.saver #dock,body.saver #card,body.saver #toast,body.saver #overlay,body.saver #tap{display:none}
+  body.saver #dock,body.saver #card,body.saver #toast,body.saver #overlay,body.saver #tap,body.saver #enter{display:none}
 </style>
 </head>
 <body>
@@ -136,16 +141,17 @@
 </div>
 <div id="toast" class="glass off"></div>
 
-<div id="overlay">
+<div id="overlay" class="hide">
   <h1>RAIN KEYS</h1>
-  <p>기기에서 나오는 소리가 그대로 빗방울이 됩니다.<br>피아노 음의 높낮이는 가로 위치(건반)로, 리듬은 떨어지는 타이밍으로 따라가요.<br>낮은 음은 크고 무거운 방울, 높은 음은 작고 가벼운 방울이 됩니다.</p>
+  <p>무엇으로 들을까요?</p>
   <div class="btns">
     <button id="btnSys" class="big">💻 기기 소리 연결</button>
     <button id="btnMic" class="big alt">🎤 마이크로 듣기</button>
   </div>
-  <p class="note" id="sysnote">공유 창이 뜨면 화면을 고르고 <b>'공유'</b>만 누르세요. 전체 화면과 오디오 공유가 미리 골라져 있어요.<br>Windows는 기기의 모든 소리, macOS는 고른 탭의 소리를 들어요. 소리는 그대로 들리고 이 페이지는 분석만 합니다.</p>
+  <p class="note" id="sysnote">기기 소리: 공유 창에서 <b>'공유'</b>만 누르세요 · 마이크: 주변 소리를 들어요</p>
   <div id="msg" class="msg"></div>
 </div>
+<div id="enter" hidden></div>
 <div id="tap" hidden>🎤 화면을 한 번 눌러 주세요 · 소리 분석을 시작해요</div>
 
 <script>
@@ -445,7 +451,7 @@ if (SAVER) document.body.classList.add('saver');
 
 const glc = $('gl'), cv = $('c'), g = cv.getContext('2d');
 const overlay = $('overlay'), msg = $('msg');
-function showMsg(t) { msg.textContent = t || ''; }
+function showMsg(t) { msg.textContent = t || ''; if (t && overlay.classList.contains('hide') && typeof toast === 'function') toast(t, 6000); }
 
 let LOW = false;
 $('low').checked = LOW;
@@ -1468,6 +1474,21 @@ function stopCapture(showOverlay) {
   $('tap').hidden = true;
   if (showOverlay) overlay.classList.remove('hide');
 }
+// 첫 화면: 바다가 바로 보이고, 아무 곳이나 한 번 누르면 연결(PC는 기기 소리, 휴대폰은 마이크)
+let connecting = false;
+function showEnter() {
+  if (HOST || SAVER || started) return;
+  $('enter').innerHTML = canSys ? "화면을 누르면 소리에 맞춰 비가 내려요<small>공유 창이 뜨면 '공유'만 누르세요</small>" : '화면을 누르면 소리에 맞춰 비가 내려요';
+  $('enter').hidden = false;
+}
+window.addEventListener('pointerdown', async e => {
+  if (started || connecting || HOST || SAVER || !overlay.classList.contains('hide')) return;
+  if (e.target.closest('#dock,#card,#overlay')) return;
+  connecting = true; $('enter').hidden = true;
+  await startCapture(canSys ? 'system' : 'mic');
+  connecting = false;
+  if (!started) showEnter();
+});
 let capT0 = 0;
 async function startCapture(kind) {
   showMsg(''); stopCapture(false);
@@ -1505,7 +1526,7 @@ async function startCapture(kind) {
   setupBands();
   stream.getTracks().forEach(t => t.addEventListener('ended', () => { if (stream) { showMsg('소리 공유가 끝났어요.'); stopCapture(true); } }));
   capT0 = clk(); hitLog.length = 0;
-  capKind = kind; started = true; overlay.classList.add('hide');
+  capKind = kind; started = true; overlay.classList.add('hide'); $('enter').hidden = true;
   // 브라우저의 '공유 중' 막대는 페이지가 지울 수 없음 → 전체화면이면 가려진다고 알려 줌
   if (kind === 'system' && !HOST && !document.fullscreenElement) toast('전체화면으로 보면 위쪽 공유 막대가 가려져요', 5000);
 }
@@ -2317,6 +2338,8 @@ if (HOST) $('sysnote').textContent = '이 앱은 기기에서 나오는 모든 �
 else if (!canSys) { $('btnSys').style.display = 'none'; $('sysnote').textContent = '이 기기/브라우저는 내부 소리 공유를 지원하지 않아 마이크로 듣는 방식만 가능해요.'; }
 $('btnSys').addEventListener('click', () => startCapture('system'));
 $('btnMic').addEventListener('click', () => startCapture('mic'));
+// 연결 방식 화면은 바깥(배경)을 누르면 닫힘
+overlay.addEventListener('pointerdown', e => { if (e.target === overlay) { overlay.classList.add('hide'); showEnter(); } });
 
 // 3초 동안 아무 조작이 없으면 아이콘·커서도 숨기고 바다만(설정 카드가 열려 있으면 유지)
 let idleTimer = 0;
@@ -2372,6 +2395,7 @@ if (HOST) {
 try { initGL(); } catch (e) { console.error(e); showMsg('이 브라우저는 WebGL2를 지원하지 않아 바다를 그릴 수 없어요. 최신 Chrome/Edge/Safari를 사용해 주세요.'); }
 resize();
 requestAnimationFrame(frame);
+showEnter();
 autoStart();
 // 테스트용 훅
 window.RK = {
