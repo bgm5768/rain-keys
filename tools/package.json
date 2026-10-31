@@ -1,0 +1,14 @@
+{
+  "name": "rain-keys-tools",
+  "private": true,
+  "description": "Rain Keys 테스트·녹화 도구(Playwright)",
+  "scripts": {
+    "serve": "node serve.js",
+    "synth": "node synth-piano.js && node synth-piano-wide.js",
+    "accuracy": "node accuracy.js",
+    "accuracy:ai": "AI=1 node accuracy.js",
+    "scenes": "node render-scenes.js",
+    "promo": "node promo.js"
+  },
+  "devDependencies": { "playwright": "^1.50.0" }
+}

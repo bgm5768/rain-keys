@@ -134,6 +134,8 @@
   <div class="sec">
     <div class="row"><span>환경음 <span class="tip" tabindex="0" data-tip="빗소리와 배경에 맞는 물소리(호수 찰랑임, 파도, 도시의 웅웅거림)를 들려줘요. 빗소리는 화면의 비가 굵어질수록 커져요. 이 소리는 분석에 섞이지 않게 막아 둬요(마이크로 들을 때는 스피커 대신 이어폰을 권해요).">i</span></span><label class="sw"><input id="amb" type="checkbox"><span></span></label></div>
     <div class="row"><span>천둥·번개 <span class="tip" tabindex="0" data-tip="정해진 간격 없이 가끔 번개가 쳐요. 비가 굵을수록 자주 치고, 가까운 번개는 줄기가 보이고 '콰직' 소리가 나요. 천둥은 거리만큼(1km에 약 3초) 늦게 들려요(환경음이 켜져 있을 때).">i</span></span><label class="sw"><input id="storm" type="checkbox"><span></span></label></div>
+    <div class="row"><span>AI 음 인식 <small style="opacity:.55">(테스트)</small></span><label class="sw"><input id="bpSw" type="checkbox"><span></span></label></div>
+    <div class="hint" id="bpInfo" style="margin-top:-6px"></div>
     <div class="row"><span>건반 표시</span><label class="sw"><input id="keys" type="checkbox"><span></span></label></div>
     <div class="row"><span>저사양 <span class="tip" tabindex="0" data-tip="입자 수와 해상도를 낮춰 느린 기기에서도 부드럽게 움직여요. 느려지면 자동으로 켜져요.">i</span></span><label class="sw"><input id="low" type="checkbox"><span></span></label></div>
     <button class="btn" id="saverBtn" title="Windows 화면보호기로 등록하고 설정 창을 열어요" hidden>🌧 화면보호기로 설정</button>
@@ -1421,7 +1423,7 @@ function analyze(dt) {
   for (let i = pending.length - 1; i >= 0; i--) if (now - pending[i].t >= 0.045) pending.splice(i, 1);
   if (kept.length > 9) { kept.sort((a, b) => b.m - a.m); kept = kept.slice(0, 3); }   // 타악/잡음성 → 대표만
   kept.sort((a, b) => b.m - a.m);
-  for (let i = 0; i < kept.length && i < 8; i++) {
+  for (let i = 0; i < kept.length && i < 8 && !(bp.on && bp.state === 'on'); i++) {
     const c = kept[i];
     const str = clamp(0.2 + (c.m - floorDb + tilt(c.s)) / 38 * 0.55 + clamp((c.over - T) / 25, 0, 1) * 0.35, 0.15, 1);
     const sf = lowFix(c);
@@ -1454,15 +1456,102 @@ function makeDrop(o) {
   const Y0 = Math.max(hc * 0.6, hc - (ys - y0) * Z / f);
   drops.push({ kind: o.kind, tImp: o.tImp, T: o.T, X, Z, Y0, sz: o.sz, e: o.e, hue: o.hue, midi: o.midi, wx: windVX * 0.45, wz: windVZ * 0.45 });   // 큰 방울은 바람을 덜 탐
 }
-function spawnNote(s, str, tDet) {
+function spawnNote(s, str, tDet, late) {
   if (drops.length > 200) return;
   const midi = MIN_MIDI + s, lane = s / (NS - 1);
   const sz = lerp(1.7, 0.55, lane) * (0.6 + 0.8 * str) * rand(0.92, 1.08);
   const fracX = keyFrac(midi) + rand(-0.2, 0.2) * (isBlack(midi) ? 0.6 : 1) / KB_WHITES;   // 건반 폭 안에서 살짝만 흔들림
-  const T = fallT * rand(0.95, 1.05);
+  const T = Math.max(0.08, fallT * rand(0.95, 1.05) - (late || 0));
   keyGlow[midi] = 1;   // 소리가 들린 순간 해당 건반이 켜짐
   makeDrop({ kind: 'hit', tImp: simT + T, T, Z: rand(1.7, 4.2), fracX, sz, e: sz * rand(0.9, 1.15), hue: keyHue(midi), midi, startY: showKeys ? KB_Y + KB_H : -40 });
   hitCount++; hitLog.push({ midi, t: tDet || clk() }); if (hitLog.length > 2000) hitLog.shift();
+}
+
+/* ======================================================================
+   AI 음 인식(테스트): 스포티파이 Basic Pitch 모델(assets/basic-pitch, Apache-2.0)을 TensorFlow.js로 실시간 실행.
+   들어오는 소리를 22.05kHz로 받아 가장 최근 2초를 0.15초마다 모델에 넣고, 모델이 낸 '음이 시작됨(onset)' 확률에서
+   새 음을 골라 빗방울로 만듦. 창의 끝 15프레임(약 0.17초)은 가장자리라 부정확해서 버리고 그 앞부분만 씀
+   → 소리부터 빗방울 생성까지 약 0.25~0.35초. 그만큼 방울이 떨어지는 시간을 줄여 착수 순간은 소리에 맞춤.
+   켜 두면 기존 방식의 '새 음' 검출은 쉬고(잔비·소리 크기는 그대로) 이 모델이 음을 정함.
+   ====================================================================== */
+const BP_SR = 22050, BP_N = 43844, BP_FPS = BP_SR / 256, BP_EDGE = 15;
+const bp = { on: false, state: 'off', model: null, ring: new Float32Array(BP_N), w: 0, filled: 0, endT: 0, busy: false, last: 0,
+  ac: null, node: null, src: null, lastOn: new Float32Array(88).fill(-9), ms: 0, lat: 0, thr: 0.8, thrLow: 0.4 };
+function loadScript(url) {
+  return new Promise((res, rej) => { const s = document.createElement('script'); s.src = url; s.onload = res; s.onerror = () => rej(new Error('load ' + url)); document.head.appendChild(s); });
+}
+async function bpLoad() {
+  if (bp.model) return true;
+  bp.state = 'loading'; bpUI();
+  try {
+    if (!window.tf) await loadScript('https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.21.0/dist/tf.min.js');
+    await tf.ready();
+    bp.model = await tf.loadGraphModel(new URL('assets/basic-pitch/model.json', location.href).href);
+    tf.tidy(() => bp.model.execute(tf.zeros([1, BP_N, 1]), ['Identity_2']));   // 첫 실행은 느리므로 미리 한 번
+    return true;
+  } catch (e) {
+    console.warn(e); bp.state = 'error'; bpUI(); return false;
+  }
+}
+// 분석 중인 소리를 22.05kHz로 따로 받음(브라우저가 알아서 변환). 128샘플마다 링 버퍼에 쌓음
+async function bpAttach() {
+  if (!stream || !bp.model) return;
+  bpDetach();
+  const ac = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: BP_SR });
+  const code = `registerProcessor('rk-tap', class extends AudioWorkletProcessor {
+    process(i) { const c = i[0]; if (c && c[0]) { const m = new Float32Array(c[0].length); for (let k = 0; k < m.length; k++) { let s = 0; for (const ch of c) s += ch[k]; m[k] = s / c.length; } this.port.postMessage(m, [m.buffer]); } return true; } });`;
+  await ac.audioWorklet.addModule(URL.createObjectURL(new Blob([code], { type: 'text/javascript' })));
+  const src = ac.createMediaStreamSource(new MediaStream(stream.getAudioTracks()));
+  const node = new AudioWorkletNode(ac, 'rk-tap', { numberOfInputs: 1, numberOfOutputs: 1 });
+  const mute = ac.createGain(); mute.gain.value = 0;
+  src.connect(node).connect(mute).connect(ac.destination);
+  node.port.onmessage = e => {
+    const m = e.data, r = bp.ring;
+    for (let k = 0; k < m.length; k++) { r[bp.w] = m[k]; bp.w = (bp.w + 1) % BP_N; }
+    bp.filled = Math.min(BP_N, bp.filled + m.length); bp.endT = clk();
+  };
+  try { await ac.resume(); } catch (e) {}
+  Object.assign(bp, { ac, node, src, filled: 0, state: 'on' }); bpUI();
+}
+function bpDetach() {
+  if (bp.ac) { try { bp.node.port.onmessage = null; bp.ac.close(); } catch (e) {} }
+  bp.ac = bp.node = bp.src = null; bp.filled = 0;
+}
+async function setBP(on) {
+  bp.on = on; $('bpSw').checked = on;
+  if (!on) { bpDetach(); bp.state = 'off'; bpUI(); return; }
+  if (await bpLoad() && bp.on) { if (stream) await bpAttach(); else { bp.state = 'wait'; bpUI(); } }
+}
+function bpUI() {
+  const t = { off: '', loading: '모델 불러오는 중…', wait: '소리를 연결하면 시작해요', on: '', error: '불러오지 못했어요 · 기존 방식으로 들어요' }[bp.state];
+  $('bpInfo').textContent = bp.state === 'on' && bp.ms ? `인식 ${Math.round(bp.ms)}ms · 지연 약 ${Math.round(bp.lat * 1000)}ms` : t;
+}
+// 0.15초마다: 최근 2초 → 모델 → 새로 확정된 구간에서 음 시작 찾기
+async function bpStep() {
+  if (!bp.on || bp.state !== 'on' || bp.busy || bp.filled < BP_N * 0.6 || clk() - bp.last < 0.15) return;
+  bp.busy = true; bp.last = clk();
+  const t0 = performance.now(), endT = bp.endT;
+  const win = new Float32Array(BP_N);
+  win.set(bp.ring.subarray(bp.w)); win.set(bp.ring.subarray(0, bp.w), BP_N - bp.w);
+  const out = tf.tidy(() => bp.model.execute(tf.tensor(win, [1, BP_N, 1]), ['Identity_2', 'Identity_1']));
+  const [on, fr] = await Promise.all(out.map(x => x.data())); out.forEach(x => x.dispose());
+  bp.ms = bp.ms * 0.8 + (performance.now() - t0) * 0.2;
+  const NF = on.length / 88, f0 = NF - BP_EDGE - Math.ceil(0.2 * BP_FPS), f1 = NF - BP_EDGE;   // 이번에 새로 확정된 프레임(조금 겹치게)
+  const tWin0 = endT - BP_N / BP_SR, now = clk();
+  for (let f = f0; f < f1; f++) {
+    for (let p = 0; p < 88; p++) {
+      const v = on[f * 88 + p];
+      const th = p < 15 ? bp.thrLow : bp.thr;   // 가장 낮은 음(C2 아래)은 모델 확신이 약하게 나와 문턱을 낮춤
+      if (v < th || v < on[(f - 1) * 88 + p] || v < on[(f + 1) * 88 + p]) continue;   // 시간축 봉우리만
+      if (fr[(f + 1) * 88 + p] < 0.25 && fr[(f + 2) * 88 + p] < 0.25) continue;          // 바로 이어지는 소리가 없으면 잡음
+      const tOn = tWin0 + (f + 0.5) * 256 / BP_SR;
+      if (tOn - bp.lastOn[p] < 0.12) continue;                                            // 같은 음을 두 번 세지 않게
+      bp.lastOn[p] = tOn;
+      const age = now - tOn; bp.lat = bp.lat * 0.9 + age * 0.1;
+      spawnNote(p, clamp(0.25 + 0.75 * Math.max(v, fr[(f + 1) * 88 + p]), 0.2, 1), tOn, age);
+    }
+  }
+  bpUI(); bp.busy = false;
 }
 
 /* ======================================================================
@@ -1470,7 +1559,7 @@ function spawnNote(s, str, tDet) {
    ====================================================================== */
 function stopCapture(showOverlay) {
   if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
-  analyser = null; started = false;
+  analyser = null; started = false; bpDetach(); if (bp.on && bp.state === 'on') { bp.state = 'wait'; bpUI(); }
   $('tap').hidden = true;
   if (showOverlay) overlay.classList.remove('hide');
 }
@@ -1526,6 +1615,7 @@ async function startCapture(kind) {
   setupBands();
   stream.getTracks().forEach(t => t.addEventListener('ended', () => { if (stream) { showMsg('소리 공유가 끝났어요.'); stopCapture(true); } }));
   capT0 = clk(); hitLog.length = 0;
+  if (bp.on && bp.model) bpAttach();
   capKind = kind; started = true; overlay.classList.add('hide'); $('enter').hidden = true;
   // 브라우저의 '공유 중' 막대는 페이지가 지울 수 없음 → 전체화면이면 가려진다고 알려 줌
   if (kind === 'system' && !HOST && !document.fullscreenElement) toast('전체화면으로 보면 위쪽 공유 막대가 가려져요', 5000);
@@ -2096,7 +2186,7 @@ const T0 = performance.now();
 function step(dt) {
   simT += dt;
   updateSky(dt); updateBeam(dt); updateStorm(dt); updateSea(dt);
-  if (!manual) analyze(dt);
+  if (!manual) { analyze(dt); bpStep(); }
   let target = analyser ? clamp(soundLvl / 8, 0, 1) : 0;   // 조용해지면 비가 그침
   if (ambOn) {                                            // 환경음을 켜 두면 조용해도 비가 내림(굵기가 천천히 오르내림)
     const nr = 0.5 + 0.3 * Math.sin(simT * 0.021 + 1.3) + 0.2 * Math.sin(simT * 0.057 + 4.1);
@@ -2207,21 +2297,26 @@ function updateAmb(dt) {
 }
 $('amb').addEventListener('change', e => { setAmb(e.target.checked); savePrefs(); });
 $('storm').addEventListener('change', e => { storm.on = e.target.checked; savePrefs(); });
+$('bpSw').addEventListener('change', e => { setBP(e.target.checked); savePrefs(); });
 // 저장된 설정이 '켬'이면 첫 클릭·키 입력 때 시작(브라우저는 사용자 조작 전 소리를 막음)
 function ambFirstGesture(ev) {
   ['pointerdown', 'keydown'].forEach(ev => window.removeEventListener(ev, ambFirstGesture));
   if (ambOn) setAmb(true);
 }
-function savePrefs() { try { localStorage.setItem(PREF, JSON.stringify({ sens, fallT, showKeys, scene: SCENE.id, bg: BG.id, tod: TOD.id, amb: ambOn, storm: storm.on })); } catch (e) {} }
+function savePrefs() { try { localStorage.setItem(PREF, JSON.stringify({ sens, fallT, showKeys, scene: SCENE.id, bg: BG.id, tod: TOD.id, amb: ambOn, storm: storm.on, ai: bp.on })); } catch (e) {} }
 try {
   const p = JSON.parse(localStorage.getItem(PREF) || 'null');
   if (p) { if (p.sens >= 0 && p.sens <= 1) sens = p.sens; if (p.fallT >= 0.1 && p.fallT <= 0.8) fallT = p.fallT; if (typeof p.showKeys === 'boolean') showKeys = p.showKeys; if (p.scene) setScene(p.scene); if (p.bg) setBg(p.bg); if (p.tod) setTod(p.tod);
+    if (p.ai) setBP(true);
     if (p.storm === false) { storm.on = false; $('storm').checked = false; }
     if (p.amb) { ambOn = true; $('amb').checked = true; ['pointerdown', 'keydown'].forEach(ev => window.addEventListener(ev, ambFirstGesture)); } }
 } catch (e) {}
 // 주소의 ?scene= ?bg= ?time= 이 저장값보다 우선(예전 /v1/ 주소는 ?scene=lively 로 옴)
 const QS = new URLSearchParams(location.search);
 setScene(QS.get('scene')); setBg(QS.get('bg')); setTod(QS.get('time'));
+if (QS.get('ai') === '1') setBP(true);
+if (QS.get('aithr')) bp.thr = +QS.get('aithr');
+if (QS.get('aithrlow')) bp.thrLow = +QS.get('aithrlow');   // 시험용: 음 시작 확률 문턱
 // 아이콘 타일 줄: 목록에서 자동으로 만듦(항목을 더하면 타일도 생김)
 function tileRow(el, list, onPick) {
   for (const it of list) {
@@ -2400,7 +2495,7 @@ autoStart();
 // 테스트용 훅
 window.RK = {
   splash: (fx, Z, e, reg) => { const X = (fx * W - cx) * Z / f; splash(X, Z, e, 200, 0, reg); },
-  beam, strike, storm, sea, thunderBuf, waveBuf, setBg, setTod, get amb() { return amb; }, spawnNote, drizzle: (m, lv) => spawnDrizzle(m, lv), hitLog, get capT0() { return capT0; }, get started() { return started; }, get hits() { return hitCount; }, get gl() { return glReady; }, get fps() { return fps; },
+  bp, beam, strike, storm, sea, thunderBuf, waveBuf, setBg, setTod, get amb() { return amb; }, spawnNote, drizzle: (m, lv) => spawnDrizzle(m, lv), hitLog, get capT0() { return capT0; }, get started() { return started; }, get hits() { return hitCount; }, get gl() { return glReady; }, get fps() { return fps; },
   manual(on) { manual = on; }, step(n, dt) { for (let i = 0; i < n; i++) step(dt); draw(); },
   clear() { drops.length = parts.length = crowns.length = jets.length = craters.length = bubbles.length = floaters.length = flashes.length = timers.length = EV.length = 0; rainS.length = 0; },
   dump: () => ({ jets: jets.map(j => [+j.t.toFixed(2), +jetLen(j).toFixed(3), j.det, +j.vy.toFixed(2)]), crowns: crowns.map(c => [+c.t.toFixed(2), c.life.toFixed(2)]), craters: craters.length, bub: bubbles.length, drops: drops.length, parts: parts.filter(p => !(p.Y > -1 && p.Y < 5)).length }),
